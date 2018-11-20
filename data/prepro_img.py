@@ -6,6 +6,7 @@ import pickle as pkl
 import torch
 from torch.autograd import Variable
 from torchvision import models, transforms
+from tqdm import tqdm
 
 def get_image_features(image_path, model, layer):
     # 1. Load the image with Pillow library
@@ -18,14 +19,15 @@ def get_image_features(image_path, model, layer):
 
     # 2. Create a PyTorch Variable with the transformed image
     t_img = Variable(normalize(to_tensor(scaler(img))).unsqueeze(0))
+    # t_img.cuda()
 
     # 3. Create a vector of zeros that will hold our feature vector
     #    The 'avgpool' layer has an output size of 512
-    my_embedding = torch.zeros(512)
+    my_embedding = torch.zeros(2048)
     
     # 4. Define a function that will copy the output of a layer
     def copy_data(m, i, o):
-        my_embedding.copy_(o.data)
+        my_embedding.copy_(o.squeeze().data)
 
     # 5. Attach that function to our selected layer
     h = layer.register_forward_hook(copy_data)
@@ -40,6 +42,7 @@ def get_image_features(image_path, model, layer):
 def load_model(end_layer='avgpool'):
     # Load the pretrained model
     model = models.resnet50(pretrained=True)
+
     # Use the model object to select the desired layer
     layer = model._modules.get(end_layer)
     model.eval()
@@ -47,32 +50,23 @@ def load_model(end_layer='avgpool'):
     return model, layer
 
 
-def main(params):
-    imgs_train = json.load(open(params['input_train_json'], 'r'))
-    imgs_test = json.load(open(params['input_test_json'], 'r'))
-    
+def main(params):    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     with open(params['mapping_file'], 'rb') as map_file:
         _, index_to_img = pkl.load(map_file)
 
-    train_embeddings = np.zeros(shape=(len(imgs_train), 1000))
-    test_embeddings = np.zeros(shape=(len(imgs_test), 1000))
+    features = np.zeros(shape=(len(index_to_img), 2048))
 
     model, layer = load_model()
+    model.to(device)
 
-    for i, img in enumerate(imgs_train):
-        img_id = img['img_id']
-        features = get_image_features(index_to_img[img_id], model, layer)
-        train_embeddings[i] = features
-
-    for i, img in enumerate(imgs_test):
-        img_id = img['img_id']
-        features = get_image_features(index_to_img[img_id], model, layer)
-        test_embeddings[i] = features
+    for i in tqdm(range(len(index_to_img))):
+        features[i] = get_image_features(index_to_img[i], model, layer)
 
     out = {}
-    out['train_embeddings'] = train_embeddings
-    out['test_embeddings'] = test_embeddings
-
+    out['image_features'] = features
+    
     ## save the created embeddings
     with open(params['embedding_output_path'], 'wb') as out_file:
         pkl.dump(out, out_file)
@@ -82,8 +76,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # input json
-    parser.add_argument('--input_train_json', default='vqa_train.json', help='input json file to process into pkl')
-    parser.add_argument('--input_test_json', default='vqa_test.json', help='input json file to process into pkl')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
     parser.add_argument('--output_train_json', default='../data/vqa_train_img_feats.json', help='output json file with img features')
     parser.add_argument('--output_test_json', default='../data/vqa_test_img_feats.json', help='output json file with img features')
