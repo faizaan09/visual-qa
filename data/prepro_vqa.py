@@ -30,6 +30,13 @@ def filter_question(imgs, atoi):
     print( 'question number reduce from %d to %d '%(len(imgs), len(new_imgs)))
     return new_imgs
 
+def encode_answer(imgs, atoi):
+
+    for i, img in enumerate(imgs):
+        img['ans'] = atoi.get(img['ans'])
+
+    return imgs
+
 def main(params):
 
     imgs_train = json.load(open(params['input_train_json'], 'r'))
@@ -45,6 +52,18 @@ def main(params):
     # filter question, which isn't in the top answers.
     imgs_train = filter_question(imgs_train, atoi)
     imgs_test = filter_question(imgs_test, atoi)
+
+    imgs_train = encode_answer(imgs_train,atoi)
+
+    imgs_test = encode_answer(imgs_test,atoi)
+
+
+    ## remove unnecessary field from data
+    for data in imgs_train:
+        data.pop('MC_ans', None)
+
+    for data in imgs_test:
+        data.pop('MC_ans', None)
 
     json.dump(imgs_train, open(params['output_train_json'], 'w'))
     json.dump(imgs_train, open(params['output_test_json'], 'w'))
