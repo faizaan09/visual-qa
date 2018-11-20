@@ -4,6 +4,7 @@ import os.path
 import argparse
 import numpy as np
 import json
+import pickle as pkl
 
 def get_top_answers(imgs, params):
     counts = {}
@@ -37,6 +38,32 @@ def encode_answer(imgs, atoi):
 
     return imgs
 
+def image_to_index(imgs_train, imgs_test):
+    img_to_index = {}
+    index_to_img = {}
+    ind = 0
+
+    for img in imgs_train:
+        if img['img_path'] not in img_to_index:
+            img_to_index[img['img_path']] = ind
+            index_to_img[ind] = img['img_path']
+            img['img_path'] = ind
+            ind+=1
+
+    for img in imgs_test:
+        if img['img_path'] not in img_to_index:
+            img_to_index[img['img_path']] = ind
+            index_to_img[ind] = img['img_path']
+            img['img_path'] = ind
+            ind+=1
+    
+    image_index = (img_to_index, index_to_img)
+
+    with open('image_index.pkl','wb') as f:
+        pkl.dump(image_index,f)
+
+    return imgs_train, imgs_test
+
 def main(params):
 
     imgs_train = json.load(open(params['input_train_json'], 'r'))
@@ -64,6 +91,8 @@ def main(params):
 
     for data in imgs_test:
         data.pop('MC_ans', None)
+
+    imgs_train, imgs_test = image_to_index(imgs_train,imgs_test)
 
     json.dump(imgs_train, open(params['output_train_json'], 'w'))
     json.dump(imgs_train, open(params['output_test_json'], 'w'))
