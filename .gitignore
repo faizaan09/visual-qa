@@ -4,6 +4,7 @@ data/train2014/
 data/val2014/
 *.zip
 *.json
+*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
