@@ -49,6 +49,8 @@ def image_to_index(imgs_train, imgs_test):
             index_to_img[ind] = img['img_path']
             img['img_path'] = ind
             ind+=1
+        else:
+            img['img_path'] = img_to_index[img['img_path']]
 
     for img in imgs_test:
         if img['img_path'] not in img_to_index:
@@ -56,6 +58,8 @@ def image_to_index(imgs_train, imgs_test):
             index_to_img[ind] = img['img_path']
             img['img_path'] = ind
             ind+=1
+        else:
+            img['img_path'] = img_to_index[img['img_path']]
     
     image_index = (img_to_index, index_to_img)
 
