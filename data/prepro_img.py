@@ -7,23 +7,29 @@ import torch
 from torch.autograd import Variable
 from torchvision import models, transforms
 from tqdm import tqdm
+import sys
 
-def get_image_features(image_path, model, layer):
+def get_image_features(image_paths, model, layer):
     # 1. Load the image with Pillow library
-    img = Image.open(image_path)
 
-    scaler = transforms.Scale((224, 224))
+    scaler = transforms.Resize((224, 224))
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
     to_tensor = transforms.ToTensor()
 
+    t_imgs = torch.zeros([len(image_paths),3, 224, 224])
+    for i, path in enumerate(image_paths):
+        img = Image.open(path)
+        img = img.convert(mode='RGB')
+        t_imgs[i,:,:,:] = normalize(to_tensor(scaler(img)))
+
     # 2. Create a PyTorch Variable with the transformed image
-    t_img = Variable(normalize(to_tensor(scaler(img))).unsqueeze(0))
-    # t_img.cuda()
+    t_imgs = Variable(t_imgs.cuda())
 
     # 3. Create a vector of zeros that will hold our feature vector
     #    The 'avgpool' layer has an output size of 512
-    my_embedding = torch.zeros(2048)
+    my_embedding = torch.zeros((len(image_paths),2048))
+    my_embedding = Variable(my_embedding.cuda())
     
     # 4. Define a function that will copy the output of a layer
     def copy_data(m, i, o):
@@ -32,11 +38,11 @@ def get_image_features(image_path, model, layer):
     # 5. Attach that function to our selected layer
     h = layer.register_forward_hook(copy_data)
     # 6. Run the model on our transformed image
-    model(t_img)
+    model(t_imgs)
     # 7. Detach our copy function from the layer
     h.remove()
     # 8. Return the feature vector
-    return my_embedding.numpy()
+    return my_embedding.cpu().numpy()
 
 
 def load_model(end_layer='avgpool'):
@@ -60,9 +66,11 @@ def main(params):
 
     model, layer = load_model()
     model.to(device)
+    batch_size = 32
 
-    for i in tqdm(range(len(index_to_img))):
-        features[i] = get_image_features(index_to_img[i], model, layer)
+    for i in tqdm(range(0,len(index_to_img),batch_size)):
+        end = min(len(index_to_img),i+batch_size)
+        features[i:end] = get_image_features(index_to_img[i:end], model, layer)
 
     out = {}
     out['image_features'] = features
@@ -77,9 +85,7 @@ if __name__ == "__main__":
 
     # input json
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
-    parser.add_argument('--output_train_json', default='../data/vqa_train_img_feats.json', help='output json file with img features')
-    parser.add_argument('--output_test_json', default='../data/vqa_test_img_feats.json', help='output json file with img features')
-    parser.add_argument
+    parser.add_argument('--embedding_output_path', default='../data/img_embedding.pkl', help='output pkl file with img features')
 
     args = parser.parse_args()
     params = vars(args)

@@ -40,13 +40,13 @@ def encode_answer(imgs, atoi):
 
 def image_to_index(imgs_train, imgs_test):
     img_to_index = {}
-    index_to_img = {}
+    index_to_img = []
     ind = 0
 
     for img in imgs_train:
         if img['img_path'] not in img_to_index:
             img_to_index[img['img_path']] = ind
-            index_to_img[ind] = img['img_path']
+            index_to_img.append(img['img_path'])
             img['img_path'] = ind
             ind+=1
         else:
@@ -55,7 +55,7 @@ def image_to_index(imgs_train, imgs_test):
     for img in imgs_test:
         if img['img_path'] not in img_to_index:
             img_to_index[img['img_path']] = ind
-            index_to_img[ind] = img['img_path']
+            index_to_img.append(img['img_path'])
             img['img_path'] = ind
             ind+=1
         else:
