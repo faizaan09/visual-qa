@@ -2,9 +2,11 @@
 data/annotations/
 data/train2014/
 data/val2014/
+.vector_cache
 *.zip
 *.json
 *.pkl
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

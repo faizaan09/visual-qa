@@ -38,26 +38,35 @@ def main(params):
     LABEL = Field(sequential=False, use_vocab=False)
     IMG_PATH =  Field(sequential=False, use_vocab=False)
 
+    fields = {'ans':('ans', LABEL), 'img_path':('img_path', IMG_PATH), 'question':('question', TEXT)}
+
     train, val = TabularDataset.splits(
                 path=params['dataroot'], 
-                train=params['input_train_json'], 
-                validation=params['input_test_json'], 
-                format='json', 
-                fields={'question': ('question', TEXT), 'img_path': ('img_path', IMG_PATH), 'ans': ('ans', LABEL)}
+                train=params['input_train'], 
+                validation=params['input_test'], 
+                format='csv',
+                skip_header=False, 
+                fields=fields
                 )
 
-    print("Train data", train.shape)
-    print("Val data", val.shape)
+    print("Train data")
+    print(train[0].__dict__.keys())
+    print(train[0].ans, train[0].img_path, train[0].question)
+
+    print("Validation data")
+    print(val[0].__dict__.keys())
+    print(val[0].ans, val[0].img_path, val[0].question)
 
     print("Building Vocabulary ..")
     TEXT.build_vocab(train, vectors='glove.6B.100d')
     vocab = TEXT.vocab
 
     print("Creating Embedding from vocab vectors ..")    
-    embed = nn.Embedding(len(vocab), params['nte'])
-    embed.weight.data.copy_(vocab.vectors)
+    # embed = nn.Embedding(len(vocab), params['nte'])
+    # embed.weight.data.copy_(vocab.vectors)
+    embed = nn.Embedding.from_pretrained(vocab.vectors)
 
-    print("Text Embeddings are generated of size ", embed.shape)
+    print("Text Embeddings are generated of size ", embed.weight.size())
 
 
     
@@ -67,8 +76,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # input json
-    parser.add_argument('--input_train_json', default='vqa_train_2.json', help='input json file')
-    parser.add_argument('--input_test_json', default='vqa_test_2.json', help='input json file')
+    parser.add_argument('--input_train', default='vqa_train.csv', help='input json file')
+    parser.add_argument('--input_test', default='vqa_test.csv', help='input json file')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
     parser.add_argument('--embedding_output_path', default='./data/img_embedding.pkl', help='output pkl file with img features')
 

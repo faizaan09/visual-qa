@@ -96,10 +96,10 @@ def main(params):
     for data in imgs_test:
         data.pop('MC_ans', None)
 
-    imgs_train, imgs_test = image_to_index(imgs_train,imgs_test)
+    imgs_train, imgs_test = image_to_index(imgs_train, imgs_test)
 
     json.dump(imgs_train, open(params['output_train_json'], 'w'))
-    json.dump(imgs_train, open(params['output_test_json'], 'w'))
+    json.dump(imgs_test, open(params['output_test_json'], 'w'))
 
 
 if __name__ == "__main__":
