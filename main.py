@@ -16,7 +16,7 @@ import torchvision.utils as vutils
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from datetime import datetime
-# import model
+import model
 from torchtext.data import TabularDataset, Field
 
 spacy_en = spacy.load('en')
@@ -64,9 +64,14 @@ def main(params):
     print("Creating Embedding from vocab vectors ..")    
     # embed = nn.Embedding(len(vocab), params['nte'])
     # embed.weight.data.copy_(vocab.vectors)
-    embed = nn.Embedding.from_pretrained(vocab.vectors)
+    # embed = nn.Embedding.from_pretrained(vocab.vectors)
+    # print("Text Embeddings are generated of size ", embed.weight.size())
 
-    print("Text Embeddings are generated of size ", embed.weight.size())
+    params['vocab'] = vocab
+
+    vqa_model = model.Model(params)
+
+    print(vqa_model)
 
 
     
@@ -79,7 +84,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_train', default='vqa_train.csv', help='input json file')
     parser.add_argument('--input_test', default='vqa_test.csv', help='input json file')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
-    parser.add_argument('--embedding_output_path', default='./data/img_embedding.pkl', help='output pkl file with img features')
+    parser.add_argument('--image_embeddings', default='./data/img_embedding.pkl', help='output pkl file with img features')
 
     parser.add_argument(
         '--dataroot', default='./data/', help='path to dataset')
