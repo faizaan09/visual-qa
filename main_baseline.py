@@ -18,11 +18,19 @@ from torch.autograd import Variable
 from datetime import datetime
 import model
 from torchtext.data import TabularDataset, Field, Iterator
+import pickle as pkl
 
 spacy_en = spacy.load('en')
 def tokenizer(text): # create a tokenizer function
     return [tok.text for tok in spacy_en.tokenizer(text)]
 
+
+def repackage_hidden(hidden):
+    """Wraps hidden states in new Variables, to detach them from their history."""
+    if not type(hidden) == tuple:
+        return Variable(hidden)
+    else:
+        return tuple(repackage_hidden(variable) for variable in hidden)
 
 def main(params):
     try:
@@ -35,7 +43,7 @@ def main(params):
         print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
     TEXT = Field(sequential=True, use_vocab=True, tokenize=tokenizer, lower=True, batch_first=True)
-    LABEL = Field(sequential=True, use_vocab=False, is_target=True,  batch_first=True)
+    LABEL = Field(sequential=False, use_vocab=False, is_target=True,  batch_first=True)
     IMG_IND =  Field(sequential=False, use_vocab=False, batch_first=True)
 
     fields = {'ans':('ans', LABEL), 'img_ind':('img_ind', IMG_IND), 'question':('question', TEXT)}
@@ -72,21 +80,25 @@ def main(params):
     vqa_model = model.Model(params)
 
     print(vqa_model)
-
+    import pdb; pdb.set_trace()
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(lr=params['lr'])
-
     if params['cuda']:
 	    vqa_model.cuda()
 	    criterion.cuda()
 
-    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (params['batch_size'], 1))
+    optimizer = torch.optim.Adam(vqa_model.parameters(), lr=params['lr'])
 
-    for epoch in range(params['niter']):
+    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (params['batch_size'],params['batch_size']))
 
+    for epoch in range(1, params['niter']+1):
         vqa_model.train()
+        
         for i, row in enumerate(train_iter):
             
+            # Starting each batch, we detach the hidden state from how it was previously produced.
+            # If we didn't, the model would try backpropagating all the way to start of the dataset.
+
+            vqa_model.hidden = repackage_hidden(vqa_model.hidden)
             vqa_model.zero_grad()
             ans, img_ind, question = row.ans, row.img_ind, row.question
             
@@ -97,20 +109,25 @@ def main(params):
                 img_ind = img_ind.cuda()
                 question = question.cuda()
 
-            pred_ans = vqa_model(img_ind, question)
+            ans_var = Variable(ans)
+            img_ind_var = Variable(img_ind)
+            question_var = Variable(question)
+
+            pred_ans = vqa_model(img_ind_var, question_var)
             
-            train_loss = criterion(pred_ans, ans)
+            train_loss = criterion(pred_ans, ans_var)
             train_loss.backward()
             optimizer.step()
 
-            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i, len(train_iter), train_loss))
+            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i+1 , len(train_iter), train_loss))
+
 
         if epoch % 5 == 0:
             print('Calculating Validation loss')
             vqa_model.eval()
             avg_loss = 0
             for i, row in enumerate(val_iter):
-
+                vqa_model.hidden = repackage_hidden(vqa_model.hidden)
                 vqa_model.zero_grad()
                 ans, img_ind, question = row.ans, row.img_ind, row.question
                 
@@ -154,7 +171,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
-        '--batch_size', type=int, default=16, help='input batch size')
+        '--batch_size', type=int, default=1, help='input batch size')
     parser.add_argument(
         '--imageSize',
         type=int,

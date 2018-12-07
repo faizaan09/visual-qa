@@ -77,8 +77,8 @@ def main(params):
     #imgs_test = imgs_test[:5000]
     # get top answers
     top_ans = get_top_answers(imgs_train, params)
-    atoi = {w:i+1 for i,w in enumerate(top_ans)}
-    itoa = {i+1:w for i,w in enumerate(top_ans)}
+    atoi = {w:i for i,w in enumerate(top_ans)}
+    itoa = {i:w for i,w in enumerate(top_ans)}
 
     # filter question, which isn't in the top answers.
     imgs_train = filter_question(imgs_train, atoi)
