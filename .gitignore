@@ -15,6 +15,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+.vscode/
 .Python
 build/
 develop-eggs/
@@ -110,3 +111,4 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+.vscode/settings.json
