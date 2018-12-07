@@ -80,7 +80,7 @@ def main(params):
 	    vqa_model.cuda()
 	    criterion.cuda()
 
-    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (4,4))
+    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (params['batch_size'], 1))
 
     for epoch in range(params['niter']):
 
