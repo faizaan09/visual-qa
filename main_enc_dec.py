@@ -5,19 +5,16 @@ import random
 import argparse
 import json
 import spacy
+import model
 import pickle as pkl
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
-import torchvision.utils as vutils
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from datetime import datetime
-import model
 from torchtext.data import TabularDataset, Field, Iterator
 
 spacy_en = spacy.load('en')
@@ -34,6 +31,8 @@ def main(params):
 
     if torch.cuda.is_available() and not params['cuda']:
         print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     SOS_token = '<sos>'
     EOS_token = '<eos>'
@@ -85,7 +84,7 @@ def main(params):
     decoder = model.Decoder(txt_embed, params)
     print(decoder)
 
-    criterion = torch.nn.PairwiseDistance(keepdim=True)
+    criterion = torch.nn.PairwiseDistance(keepdim=False)
 
     if params['cuda']:
         encoder.cuda()
@@ -101,45 +100,52 @@ def main(params):
         encoder.train()
         decoder.train()
         for i, row in enumerate(train_iter):
-            
+            loss = 0
+
             encoder.zero_grad()
             decoder.zero_grad()
 
             ans, img_ind, question = row.ans, row.img_ind, row.question
             target_length = ans.shape[1]
             # batch_size = ans.size(0)
+            batch_size = params['batch_size']
+            encoder.hidden = encoder.init_hidden(params)
 
             if params['cuda']:
                 ans = ans.cuda()
                 img_ind = img_ind.cuda()
                 question = question.cuda()
+                encoder.hidden = (encoder.hidden[0].cuda(), encoder.hidden[1].cuda())
 
-            img_ind = Variable(img_ind)
-            question = Variable(question)
+            # img_ind = Variable(img_ind)
+            # question = Variable(question)
             ans_embed = txt_embed(ans)
 
-            context = encoder(img_ind, question)
-            
-            decoder_input = torch.tensor(ans[0][0])
-            decoder_hidden = context
+            encoder_output = encoder(img_ind, question)
+
+            decoder_input = torch.tensor(ans[0][0], device=device)
+            decoder_hidden = decoder.init_hidden(encoder_output, params)
 
             if params['cuda']:
-                decoder_input = decoder_input.cuda()
+                decoder_hidden = (decoder_hidden[0].cuda(), decoder_hidden[1].cuda())
+
 
             for di in range(target_length):
+                decoder_input = decoder_input.reshape((1,-1)).to(device)
                 decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
                 topv, topi = decoder_output.topk(1)
+                
                 decoder_input = topi.squeeze().detach()  # detach from history as input
 
-                loss += criterion(decoder_output, ans_embed[di])
+                loss += criterion(decoder_output.reshape((batch_size, -1)), ans_embed[0][di].reshape((batch_size, -1)))
                 if decoder_input.item() == EOS_token:
                     break
 
-            train_loss = criterion(pred_ans, ans_embed)
-            train_loss.backward()
+            loss.backward()
             encoder_optimizer.step()
+            decoder_optimizer.step()
 
-            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i, len(train_iter), train_loss))
+            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i, len(train_iter), loss))
 
         # if epoch % 5 == 0:
         #     print('Calculating Validation loss')

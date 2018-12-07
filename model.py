@@ -75,6 +75,14 @@ class Encoder(nn.Module):
         return (torch.zeros(1, params['batch_size'], params['txt_emb_size']),
                 torch.zeros(1, params['batch_size'], params['txt_emb_size']))
 
+    def init_hidden(self, params):
+        # Before we've done anything, we dont have any hidden state.
+        # Refer to the Pytorch documentation to see exactly
+        # why they have this dimensionality.
+        # The axes semantics are (num_layers, minibatch_size, hidden_dim)
+        return (Variable(torch.zeros(1, params['batch_size'], params['txt_emb_size'])),
+                Variable(torch.zeros(1, params['batch_size'], params['txt_emb_size'])))
+
     def forward(self, img, quest):
         # batch_size = quest.shape[0]
 
@@ -98,7 +106,12 @@ class Decoder(nn.Module):
         self.LSTM = nn.LSTM(params['txt_emb_size'], params['txt_emb_size'])
         # self.hidden = encoder_output
 
+    def init_hidden(self, encoder_output, params):
+        return (torch.reshape(encoder_output, shape=(1, params['batch_size'], -1)), 
+                torch.zeros(1, params['batch_size'], params['txt_emb_size']))
+
     def forward(self, input, hidden):
+        
         token_embeddings  = self.text_embedding(input)
 
         next_word_embed, hidden = self.LSTM(token_embeddings, hidden)
