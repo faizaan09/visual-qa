@@ -80,7 +80,7 @@ def main(params):
     vqa_model = model.Model(params)
 
     print(vqa_model)
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     criterion = torch.nn.CrossEntropyLoss()
     if params['cuda']:
 	    vqa_model.cuda()
@@ -88,16 +88,17 @@ def main(params):
 
     optimizer = torch.optim.Adam(vqa_model.parameters(), lr=params['lr'])
 
-    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (params['batch_size'],params['batch_size']))
+    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (params['batch_size'],params['batch_size']), sort_within_batch = False, sort = False)
 
     for epoch in range(1, params['niter']+1):
-        vqa_model.train()
         
         for i, row in enumerate(train_iter):
             
+            vqa_model.train()
             # Starting each batch, we detach the hidden state from how it was previously produced.
             # If we didn't, the model would try backpropagating all the way to start of the dataset.
-
+            if len(row) < params['batch_size']:
+                continue
             vqa_model.hidden = repackage_hidden(vqa_model.hidden)
             vqa_model.zero_grad()
             ans, img_ind, question = row.ans, row.img_ind, row.question
@@ -108,6 +109,7 @@ def main(params):
                 ans = ans.cuda()
                 img_ind = img_ind.cuda()
                 question = question.cuda()
+                vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
 
             ans_var = Variable(ans)
             img_ind_var = Variable(img_ind)
@@ -119,32 +121,48 @@ def main(params):
             train_loss.backward()
             optimizer.step()
 
-            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i+1 , len(train_iter), train_loss))
+            if i % 1000 == 0:
 
 
-        if epoch % 5 == 0:
-            print('Calculating Validation loss')
-            vqa_model.eval()
-            avg_loss = 0
-            for i, row in enumerate(val_iter):
-                vqa_model.hidden = repackage_hidden(vqa_model.hidden)
-                vqa_model.zero_grad()
-                ans, img_ind, question = row.ans, row.img_ind, row.question
+            # if epoch % 1 == 0:
+                # print('Calculating Validation loss')
+                vqa_model.eval()
+                tot_loss = 0
+                tot_acc = 0
+                for row in val_iter:
+                    
+                    if len(row) < params['batch_size']:
+                        continue
+                    vqa_model.hidden = repackage_hidden(vqa_model.hidden)
+                    vqa_model.zero_grad()
+                    ans, img_ind, question = row.ans, row.img_ind, row.question
+                    
+                    batch_size = ans.size(0)
+
+                    if params['cuda']:
+                        ans = ans.cuda()
+                        img_ind = img_ind.cuda()
+                        question = question.cuda()
+                        vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
+
+                    ans_var = Variable(ans)
+                    img_ind_var = Variable(img_ind)
+                    question_var = Variable(question)
+
+                    pred_ans = vqa_model(img_ind_var, question_var)
+                    
+                    val_loss = criterion(pred_ans, ans_var)
+
+                    pred_ind = pred_ans.max(dim = 1)[1]
+                    val_acc = (pred_ind == ans_var).sum()
                 
-                batch_size = ans.size(0)
+                    tot_loss += val_loss.item()
+                    tot_acc += val_acc.item()
 
-                if params['cuda']:
-                    ans = ans.cuda()
-                    img_ind = img_ind.cuda()
-                    question = question.cuda()
+                print('[%d/%d][%d/%d] train_loss: %.4f val_loss: %.4f val_acc: %.4f' %(epoch,
+                params['niter'],i+1 , len(train_iter), train_loss, tot_loss/len(val_iter), tot_acc*100/len(val_iter)/batch_size ))
 
-                pred_ans = vqa_model(img_ind, question)
-                
-                val_loss = criterion(pred_ans, ans)
-
-                avg_loss += val_loss
-            
-            print('val_loss: %.4f' %(avg_loss/len(val_iter)))
+    torch.save(vqa_model.state_dict(), '%s/baseline_%d.pth' % (models,epoch))
         
 
 
@@ -171,7 +189,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
-        '--batch_size', type=int, default=1, help='input batch size')
+        '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
         '--imageSize',
         type=int,
@@ -193,7 +211,7 @@ if __name__ == "__main__":
         '--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
     parser.add_argument(
         '--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-    parser.add_argument('--cuda', action='store_true', help='enables cuda', default=False)
+    parser.add_argument('--cuda', action='store_true', help='enables cuda', default=True)
     parser.add_argument(
         '--outf',
         default='./output/',
