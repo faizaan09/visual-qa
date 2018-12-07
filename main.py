@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from datetime import datetime
 import model
-from torchtext.data import TabularDataset, Field
+from torchtext.data import TabularDataset, Field, Iterator
 
 spacy_en = spacy.load('en')
 def tokenizer(text): # create a tokenizer function
@@ -34,11 +34,11 @@ def main(params):
     if torch.cuda.is_available() and not params['cuda']:
         print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
-    TEXT = Field(sequential=True, use_vocab=True, tokenize=tokenizer, lower=True)
-    LABEL = Field(sequential=False, use_vocab=False)
-    IMG_PATH =  Field(sequential=False, use_vocab=False)
+    TEXT = Field(sequential=True, use_vocab=True, tokenize=tokenizer, lower=True, batch_first=True)
+    LABEL = Field(sequential=True, use_vocab=False, is_target=True,  batch_first=True)
+    IMG_IND =  Field(sequential=False, use_vocab=False, batch_first=True)
 
-    fields = {'ans':('ans', LABEL), 'img_path':('img_path', IMG_PATH), 'question':('question', TEXT)}
+    fields = {'ans':('ans', LABEL), 'img_ind':('img_ind', IMG_IND), 'question':('question', TEXT)}
 
     train, val = TabularDataset.splits(
                 path=params['dataroot'], 
@@ -51,11 +51,11 @@ def main(params):
 
     print("Train data")
     print(train[0].__dict__.keys())
-    print(train[0].ans, train[0].img_path, train[0].question)
+    print(train[0].ans, train[0].img_ind, train[0].question)
 
     print("Validation data")
     print(val[0].__dict__.keys())
-    print(val[0].ans, val[0].img_path, val[0].question)
+    print(val[0].ans, val[0].img_ind, val[0].question)
 
     print("Building Vocabulary ..")
     TEXT.build_vocab(train, vectors='glove.6B.100d')
@@ -73,6 +73,69 @@ def main(params):
 
     print(vqa_model)
 
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(lr=params['lr'])
+
+    if params['cuda']:
+	    vqa_model.cuda()
+	    criterion.cuda()
+
+    train_iter, val_iter = Iterator.splits((train, val), batch_sizes = (4,4))
+
+    for epoch in range(params['niter']):
+
+        vqa_model.train()
+        for i, row in enumerate(train_iter):
+            
+            vqa_model.zero_grad()
+            ans, img_ind, question = row.ans, row.img_ind, row.question
+            
+            batch_size = ans.size(0)
+
+            if params['cuda']:
+                ans = ans.cuda()
+                img_ind = img_ind.cuda()
+                question = question.cuda()
+
+            pred_ans = vqa_model(img_ind, question)
+            
+            train_loss = criterion(pred_ans, ans)
+            train_loss.backward()
+            optimizer.step()
+
+            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i, len(train_iter), train_loss))
+
+        if epoch % 5 == 0:
+            print('Calculating Validation loss')
+            vqa_model.eval()
+            avg_loss = 0
+            for i, row in enumerate(val_iter):
+
+                vqa_model.zero_grad()
+                ans, img_ind, question = row.ans, row.img_ind, row.question
+                
+                batch_size = ans.size(0)
+
+                if params['cuda']:
+                    ans = ans.cuda()
+                    img_ind = img_ind.cuda()
+                    question = question.cuda()
+
+                pred_ans = vqa_model(img_ind, question)
+                
+                val_loss = criterion(pred_ans, ans)
+
+                avg_loss += val_loss
+            
+            print('val_loss: %.4f' %(avg_loss/len(val_iter)))
+        
+
+
+            
+
+
+
+
 
     
 
@@ -81,8 +144,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # input json
-    parser.add_argument('--input_train', default='vqa_train.csv', help='input json file')
-    parser.add_argument('--input_test', default='vqa_test.csv', help='input json file')
+    parser.add_argument('--input_train', default='vqa_base_train.csv', help='input json file')
+    parser.add_argument('--input_test', default='vqa_base_test.csv', help='input json file')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
     parser.add_argument('--image_embeddings', default='./data/img_embedding.pkl', help='output pkl file with img features')
 
@@ -91,19 +154,19 @@ if __name__ == "__main__":
     parser.add_argument(
         '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
-        '--batchSize', type=int, default=16, help='input batch size')
+        '--batch_size', type=int, default=16, help='input batch size')
     parser.add_argument(
         '--imageSize',
         type=int,
         default=224,
         help='the height / width of the input image to network')
     parser.add_argument(
-        '--nte',
+        '--txt_emb_size',
         type=int,
         default=100,
         help='the size of the text embedding vector')
     parser.add_argument(
-        '--nif',
+        '--img_feature_size',
         type=int,
         default=2048,
         help='the size of the image feature vector')
@@ -113,7 +176,7 @@ if __name__ == "__main__":
         '--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
     parser.add_argument(
         '--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-    parser.add_argument('--cuda', action='store_true', help='enables cuda')
+    parser.add_argument('--cuda', action='store_true', help='enables cuda', default=False)
     parser.add_argument(
         '--outf',
         default='./output/',

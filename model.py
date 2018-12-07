@@ -4,13 +4,14 @@ import torch.nn as nn
 
 class Model(nn.Module):
     def __init__(self, params):
-
-        self.img_features = nn.Embedding(params['img_count'],params['img_emb_size'])
-
+        super().__init__()
         with open(params['image_embeddings'],'rb') as f:
-            img_embs = pkl.load(f)
+            img_embs = pkl.load(f)['image_features']
         
-        self.img_features.weight.data.copy_(img_embs)
+        self.img_features = nn.Embedding(img_embs.shape[0], img_embs.shape[1])
+
+        
+        self.img_features.weight.data.copy_(torch.from_numpy(img_embs))
         # self.img_features = nn.Embedding.from_pretrained(img_embs)        
         self.text_embedding = nn.Embedding.from_pretrained(params['vocab'].vectors)
 
@@ -18,9 +19,9 @@ class Model(nn.Module):
         self.hidden = self.init_lstm_hidden(params)
 
         self.classifier = nn.Sequential(
-            nn.Linear(params['img_emb_size'] + params['txt_emb_size'], 2500),
+            nn.Linear(params['img_feature_size'] + params['txt_emb_size'], 2500),
             nn.ReLU(True),
-            nn.Linear(2500, params['num_ans']),
+            nn.Linear(2500, 1000), #nums_ans = 1000
             nn.Softmax(True)
         )
 
