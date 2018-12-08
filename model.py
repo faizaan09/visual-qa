@@ -59,6 +59,60 @@ class Model(nn.Module):
         return answer
 
 
+class Encoder(nn.Module):
+
+    def __init__(self, img_embed, txt_embed, params):
+        super(Encoder, self).__init__()
+
+        self.img_features = img_embed
+        self.text_embedding = txt_embed
+        self.n_layers = params['n_layers']
+        self.direction = 1 + int(params['bidirection'])
+
+        self.parse_quest = nn.LSTM(
+            params['txt_emb_size'],
+            params['txt_emb_size'],
+            num_layers=self.n_layers,
+            dropout=0.3,
+            bidirectional=params['bidirection'],
+            batch_first=True)
+
+        self.hidden = self.init_hidden(params)
+
+        self.fusion = nn.Sequential(
+            nn.BatchNorm1d(params['img_feature_size'] + params['txt_emb_size']),
+            nn.LeakyReLU(), nn.Dropout(),
+            nn.Linear(params['img_feature_size'] + params['txt_emb_size'],
+                      2500), nn.BatchNorm1d(2500), nn.LeakyReLU(True),
+            nn.Dropout(), nn.Linear(2500, params['txt_emb_size']),
+            nn.LeakyReLU(True))
+
+    def init_hidden(self, params):
+        # Before we've done anything, we dont have any hidden state.
+        # Refer to the Pytorch documentation to see exactly
+        # why they have this dimensionality.
+        # The axes semantics are (num_layers, minibatch_size, hidden_dim)
+        return (torch.zeros(params['n_layers'] * self.direction,
+                            params['batch_size'], params['txt_emb_size']),
+                torch.zeros(params['n_layers'] * self.direction,
+                            params['batch_size'], params['txt_emb_size']))
+
+    def forward(self, img, quest):
+        # batch_size = quest.shape[0]
+
+        img_embedding = self.img_features(img)
+        token_embeddings = self.text_embedding(quest)
+        # token_embeddings = torch.cat(token_embeddings).view(1, 1, -1)
+
+        output, self.hidden = self.parse_quest(token_embeddings, self.hidden)
+
+        quest_embedding = self.hidden[0][0]
+        quest_img_vector = torch.cat((img_embedding, quest_embedding), 1)
+        context = self.fusion(quest_img_vector)
+
+        return context
+
+
 class Encoder_attn(nn.Module):
 
     def __init__(self, img_embed, txt_embed, params):
