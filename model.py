@@ -70,9 +70,10 @@ class Encoder(nn.Module):
 
         ## attention submodule
         self.question_attn_fc = nn.Sequential(
-            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(True))
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True))
         self.image_attn_fc = nn.Sequential(
-            nn.Linear(params['img_feature_size'], 400), nn.LeakyReLU(True))
+            nn.Linear(params['img_feature_size'], 400),
+            nn.LeakyReLU(inplace=True))
         self.attention = nn.Sequential(
             nn.Linear(400, params['img_feature_size']), nn.Softmax())
 
@@ -80,8 +81,9 @@ class Encoder(nn.Module):
         self.quest_fc = nn.Linear(params['txt_emb_size'], 1000)
         self.image_fc = nn.Linear(params['img_feature_size'], 1000)
         self.fusion = nn.Sequential(
-            nn.Linear(1000, 2500), nn.LeakyReLU(True),
-            nn.Linear(2500, params['txt_emb_size']), nn.LeakyReLU(True))
+            nn.Linear(1000, 2500), nn.LeakyReLU(inplace=True),
+            nn.Linear(2500, params['txt_emb_size']),
+            nn.LeakyReLU(inplace=True))
 
     def init_lstm_hidden(self, params):
         # Before we've done anything, we dont have any hidden state.

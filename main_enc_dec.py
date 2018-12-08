@@ -14,7 +14,7 @@ import torch.utils.data
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from datetime import datetime
-from model import Encoder, Decoder
+from model import Encoder_attn, Decoder
 from metrics import filterOutput, maskedLoss, word_accuracy
 from torchtext.data import TabularDataset, Field, Iterator
 from tensorboardX import SummaryWriter
@@ -98,8 +98,8 @@ def main(params):
 
     img_embed = nn.Embedding.from_pretrained(torch.FloatTensor(img_embs))
 
-    print("Creating Encoder ..")
-    encoder = Encoder(img_embed, txt_embed, params)
+    print("Creating Encoder_attn ..")
+    encoder = Encoder_attn(img_embed, txt_embed, params)
     print(encoder)
 
     print("Creating Decoder ..")
@@ -190,7 +190,8 @@ def main(params):
                     ans_embed = ans_embed[:, 1:]  ## removed the SOS token
                     ans = ans[:, 1:]  ## removed the SOS token
 
-                    decoder_hidden = decoder.init_hidden(encoder_output, params)
+                    decoder_hidden = decoder.init_hidden(
+                        encoder_output, params)
 
                     if params['cuda']:
                         decoder_hidden = (decoder_hidden[0].cuda(),
@@ -296,9 +297,13 @@ if __name__ == "__main__":
         '--enc_dec_model',
         default='output/enc_dec_model.pth',
         help='Saved model path')
-    parser.add_argument('--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
-        '--workers', type=int, help='number of data loading workers', default=2)
+        '--dataroot', default='./data/', help='path to dataset')
+    parser.add_argument(
+        '--workers',
+        type=int,
+        help='number of data loading workers',
+        default=2)
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
