@@ -57,9 +57,9 @@ class Model(nn.Module):
         return answer
 
 
-class Encoder(nn.Module):
+class Encoder_attn(nn.Module):
     def __init__(self, img_embed, txt_embed, params):
-        super(Encoder, self).__init__()
+        super(Encoder_attn, self).__init__()
 
         self.img_features = img_embed
         self.text_embedding = txt_embed
