@@ -17,6 +17,7 @@ from datetime import datetime
 from model import Encoder, Decoder
 from metrics import filterOutput, maskedLoss, word_accuracy
 from torchtext.data import TabularDataset, Field, Iterator
+from tensorboardX import SummaryWriter
 
 spacy_en = spacy.load('en')
 
@@ -38,6 +39,7 @@ def main(params):
             "WARNING: You have a CUDA device, so you should probably run with --cuda"
         )
 
+    writer = SummaryWriter(output_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     SOS_token = '<sos>'
@@ -187,7 +189,8 @@ def main(params):
                     ans_embed = ans_embed[:, 1:]  ## removed the SOS token
                     ans = ans[:, 1:]  ## removed the SOS token
 
-                    decoder_hidden = decoder.init_hidden(encoder_output, params)
+                    decoder_hidden = decoder.init_hidden(
+                        encoder_output, params)
 
                     if params['cuda']:
                         decoder_hidden = (decoder_hidden[0].cuda(),
@@ -230,6 +233,11 @@ def main(params):
                                 % (epoch, params['niter'], i, len(data_iter),
                                    loss, accuracy))
 
+                            writer.add_scalars('data', {
+                                'train_loss': loss,
+                                'train_acc': accuracy
+                            }, i * epoch)
+
                         loss.backward()
                         encoder_optimizer.step()
                         decoder_optimizer.step()
@@ -252,6 +260,14 @@ def main(params):
                     print('Calculating Validation loss')
                     print('val_loss: %.4f, Accuracy: %.4f' %
                           (loss / len(val_iter), accuracy / len(data_iter)))
+
+                    writer.add_scalars(
+                        'data', {
+                            'val_loss': loss / len(val_iter),
+                            'train_acc': accuracy / len(data_iter)
+                        }, i * epoch)
+
+    writer.close()
 
 
 if __name__ == "__main__":
@@ -277,9 +293,13 @@ if __name__ == "__main__":
         '--enc_dec_model',
         default='output/enc_dec_model.pth',
         help='Saved model path')
-    parser.add_argument('--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
-        '--workers', type=int, help='number of data loading workers', default=2)
+        '--dataroot', default='./data/', help='path to dataset')
+    parser.add_argument(
+        '--workers',
+        type=int,
+        help='number of data loading workers',
+        default=2)
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
