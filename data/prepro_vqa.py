@@ -80,6 +80,9 @@ def main(params):
     atoi = {w:i for i,w in enumerate(top_ans)}
     itoa = {i:w for i,w in enumerate(top_ans)}
 
+    with open('answer_index.pkl','wb') as f:
+        pkl.dump((atoi,itoa),f)
+
     # filter question, which isn't in the top answers.
     imgs_train = filter_question(imgs_train, atoi)
     imgs_test = filter_question(imgs_test, atoi)

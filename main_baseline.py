@@ -80,7 +80,14 @@ def main(params):
     vqa_model = model.Model(params)
 
     print(vqa_model)
-    # import pdb; pdb.set_trace()
+
+    use_checkpoint = True
+
+    if use_checkpoint:
+        checkpoint = torch.load(params['baseline_model'])
+        vqa_model.load_state_dict(checkpoint['model_state_dict'])
+        vqa_model.hidden = checkpoint['lstm_hidden']
+
     criterion = torch.nn.CrossEntropyLoss()
     if params['cuda']:
 	    vqa_model.cuda()
@@ -129,6 +136,8 @@ def main(params):
                 vqa_model.eval()
                 tot_loss = 0
                 tot_acc = 0
+                actual_acc = 0
+                actual_ans = 0
                 for row in val_iter:
                     
                     if len(row) < params['batch_size']:
@@ -155,14 +164,24 @@ def main(params):
 
                     pred_ind = pred_ans.max(dim = 1)[1]
                     val_acc = (pred_ind == ans_var).sum()
-                
+
+                    val_acc_actual = ((pred_ind == ans_var) & (ans_var != 0)).sum()
+                    actual_ans += (ans_var != 0).sum()
+                    
                     tot_loss += val_loss.item()
                     tot_acc += val_acc.item()
+                    actual_acc += val_acc_actual.item()
 
-                print('[%d/%d][%d/%d] train_loss: %.4f val_loss: %.4f val_acc: %.4f' %(epoch,
-                params['niter'],i+1 , len(train_iter), train_loss, tot_loss/len(val_iter), tot_acc*100/len(val_iter)/batch_size ))
+                print('[%d/%d][%d/%d] train_loss: %.4f val_loss: %.4f val_acc: %.4f actual_acc: %.4f' %(epoch,
+                params['niter'],i+1 , len(train_iter), train_loss, tot_loss/len(val_iter), 
+                tot_acc*100/len(val_iter)/batch_size, actual_acc*100/actual_ans ))
 
-    torch.save(vqa_model.state_dict(), '%s/baseline_%d.pth' % (models,epoch))
+    torch.save({'lstm_hidden': vqa_model.hidden,
+                'model_state_dict': vqa_model.state_dict()
+                }, 
+                '%s/baseline_%d.pth' % (output_dir,epoch))
+
+    print('ho gaya')
         
 
 
@@ -183,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_test', default='vqa_base_test.csv', help='input json file')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
     parser.add_argument('--image_embeddings', default='./data/img_embedding.pkl', help='output pkl file with img features')
-
+    parser.add_argument('--baseline_model', default='output/20181208_0119/baseline_15.pth', help='saved baseline model path')
     parser.add_argument(
         '--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
@@ -206,7 +225,7 @@ if __name__ == "__main__":
         default=2048,
         help='the size of the image feature vector')
     parser.add_argument(
-        '--niter', type=int, default=25, help='number of epochs to train for')
+        '--niter', type=int, default=15, help='number of epochs to train for')
     parser.add_argument(
         '--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
     parser.add_argument(
