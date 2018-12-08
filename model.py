@@ -69,19 +69,19 @@ class Encoder(nn.Module):
         self.hidden = self.init_lstm_hidden(params)
 
         ## attention submodule
-        self.quest_fc = nn.Sequential(
-            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU())
-        self.image_fc = nn.Sequential(
-            nn.Linear(params['img_feature_size'], 400), nn.LeakyReLU())
+        self.question_attn_fc = nn.Sequential(
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(True))
+        self.image_attn_fc = nn.Sequential(
+            nn.Linear(params['img_feature_size'], 400), nn.LeakyReLU(True))
         self.attention = nn.Sequential(
             nn.Linear(400, params['img_feature_size']), nn.Softmax())
 
         ##
-
+        self.quest_fc = nn.Linear(params['txt_emb_size'], 1000)
+        self.image_fc = nn.Linear(params['img_feature_size'], 1000)
         self.fusion = nn.Sequential(
-            nn.Linear(params['img_feature_size'] + params['txt_emb_size'],
-                      2500), nn.ReLU(True),
-            nn.Linear(2500, params['txt_emb_size']), nn.ReLU(True))
+            nn.Linear(1000, 2500), nn.LeakyReLU(True),
+            nn.Linear(2500, params['txt_emb_size']), nn.LeakyReLU(True))
 
     def init_lstm_hidden(self, params):
         # Before we've done anything, we dont have any hidden state.
@@ -114,8 +114,8 @@ class Encoder(nn.Module):
         quest_embedding = self.hidden[0][0]
 
         ## attention submodule
-        quest_feats = self.quest_fc(quest_embedding)
-        img_feats = self.image_fc(img_embedding)
+        quest_feats = self.question_attn_fc(quest_embedding)
+        img_feats = self.image_attn_fc(img_embedding)
         attention_weights = self.attention(torch.mul(quest_feats, img_feats))
 
         img_embedding = torch.mul(
@@ -123,7 +123,11 @@ class Encoder(nn.Module):
             img_embedding)  #attention weighted img_embedding
         ##
 
-        quest_img_vector = torch.cat((img_embedding, quest_embedding), 1)
+        ### forming the context vector
+        quest_embedding = self.quest_fc(quest_embedding)
+        img_embedding = self.image_fc(img_embedding)
+        quest_img_vector = torch.mul(img_embedding, quest_embedding)
+        # quest_img_vector = torch.cat((img_embedding, quest_embedding), 1)
         context = self.fusion(quest_img_vector)
 
         return context

@@ -185,8 +185,8 @@ def main(params):
         print(
             '[%d/%d] train_loss: %.4f val_loss: %.4f train_acc: %.4f val_acc: %.4f'
             % (epoch, params['niter'], total_train_loss / len(train_iter),
-               total_train_matches * 100 / len(train_iter) /
-               params['batch_size'], total_val_loss / len(val_iter),
+               total_val_loss / len(val_iter), total_train_matches * 100 /
+               len(train_iter) / params['batch_size'],
                total_val_matches * 100 / len(val_iter) / params['batch_size']))
 
         writer.add_scalars(
