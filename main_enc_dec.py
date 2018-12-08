@@ -11,8 +11,7 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
-from torch.optim.lr_scheduler import StepLR
-from torch.autograd import Variable
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from datetime import datetime
 from model import Encoder_attn, Decoder
 from metrics import filterOutput, maskedLoss, word_accuracy
@@ -120,6 +119,11 @@ def main(params):
     decoder_optimizer = torch.optim.Adam(
         decoder.parameters(), lr=params['lr'], weight_decay=1e-5, amsgrad=True)
 
+    encoder_LR_scheduler = ReduceLROnPlateau(
+        encoder_optimizer, 'min', patience=1)
+    decoder_LR_scheduler = ReduceLROnPlateau(
+        decoder_optimizer, 'min', patience=1)
+
     if params['use_checkpoint']:
         checkpoint = torch.load(params['enc_dec_model'])
         encoder.load_state_dict(checkpoint['encoder_state_dict'])
@@ -128,6 +132,8 @@ def main(params):
             checkpoint['encoder_optimizer_state_dict'])
         decoder_optimizer.load_state_dict(
             checkpoint['decoder_optimizer_state_dict'])
+        encoder_LR_scheduler.load_state_dict(checkpoint['encoder_LR_scheduler'])
+        decoder_LR_scheduler.load_state_dict(checkpoint['decoder_LR_scheduler'])
 
     encoder.to(device)
     decoder.to(device)
@@ -179,8 +185,6 @@ def main(params):
                     encoder.hidden = (encoder.hidden[0].to(device),
                                       encoder.hidden[1].to(device))
 
-                    img_ind = Variable(img_ind)
-                    question = Variable(question)
                     ans_embed = txt_embed(ans)
 
                     encoder_output = encoder(img_ind, question)
@@ -250,11 +254,15 @@ def main(params):
                         'encoder_state_dict':
                         encoder.state_dict(),
                         'decoder_state_dict':
-                        encoder.state_dict(),
+                        decoder.state_dict(),
                         'encoder_optimizer_state_dict':
                         encoder_optimizer.state_dict(),
                         'decoder_optimizer_state_dict':
                         decoder_optimizer.state_dict(),
+                        'encoder_LR_scheduler':
+                        encoder_LR_scheduler.state_dict(),
+                        'decoder_LR_scheduler':
+                        decoder_LR_scheduler.state_dict(),
                     }, PATH)
 
                     writer.add_scalars('data', {
@@ -265,6 +273,9 @@ def main(params):
                     print('Calculating Validation loss')
                     print(
                         'val_loss: %.4f, Accuracy: %.4f' % (avg_loss, avg_acc))
+
+                    encoder_LR_scheduler.step(avg_loss)
+                    decoder_LR_scheduler.step(avg_loss)
 
                     writer.add_scalars('data', {
                         'val_loss': avg_loss,

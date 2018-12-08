@@ -1,10 +1,12 @@
 import pickle as pkl
 import torch
 import torch.nn as nn
+from torchvision import models
 from torch.autograd import Variable
 
 
 class Model(nn.Module):
+
     def __init__(self, params):
         super(Model, self).__init__()
 
@@ -58,6 +60,7 @@ class Model(nn.Module):
 
 
 class Encoder_attn(nn.Module):
+
     def __init__(self, img_embed, txt_embed, params):
         super(Encoder_attn, self).__init__()
 
@@ -66,7 +69,7 @@ class Encoder_attn(nn.Module):
 
         self.parse_quest = nn.LSTM(
             params['txt_emb_size'], params['txt_emb_size'], batch_first=True)
-        self.hidden = self.init_lstm_hidden(params)
+        self.hidden = self.init_hidden(params)
 
         ## attention submodule
         self.question_attn_fc = nn.Sequential(
@@ -82,27 +85,15 @@ class Encoder_attn(nn.Module):
         self.image_fc = nn.Linear(params['img_feature_size'], 1000)
         self.fusion = nn.Sequential(
             nn.Linear(1000, 2500), nn.LeakyReLU(inplace=True),
-            nn.Linear(2500, params['txt_emb_size']),
-            nn.LeakyReLU(inplace=True))
-
-    def init_lstm_hidden(self, params):
-        # Before we've done anything, we dont have any hidden state.
-        # Refer to the Pytorch documentation to see exactly
-        # why they have this dimensionality.
-        # The axes semantics are (num_layers, minibatch_size, hidden_dim)
-        return (torch.zeros(1, params['batch_size'], params['txt_emb_size']),
-                torch.zeros(1, params['batch_size'], params['txt_emb_size']))
+            nn.Linear(2500, params['txt_emb_size']), nn.LeakyReLU(inplace=True))
 
     def init_hidden(self, params):
         # Before we've done anything, we dont have any hidden state.
         # Refer to the Pytorch documentation to see exactly
         # why they have this dimensionality.
         # The axes semantics are (num_layers, minibatch_size, hidden_dim)
-        return (Variable(
-            torch.zeros(1, params['batch_size'], params['txt_emb_size'])),
-                Variable(
-                    torch.zeros(1, params['batch_size'],
-                                params['txt_emb_size'])))
+        return (torch.zeros(1, params['batch_size'], params['txt_emb_size']),
+                torch.zeros(1, params['batch_size'], params['txt_emb_size']))
 
     def forward(self, img, quest):
         # batch_size = quest.shape[0]
@@ -121,8 +112,7 @@ class Encoder_attn(nn.Module):
         attention_weights = self.attention(torch.mul(quest_feats, img_feats))
 
         img_embedding = torch.mul(
-            attention_weights,
-            img_embedding)  #attention weighted img_embedding
+            attention_weights, img_embedding)  #attention weighted img_embedding
         ##
 
         ### forming the context vector
@@ -136,6 +126,7 @@ class Encoder_attn(nn.Module):
 
 
 class Decoder(nn.Module):
+
     def __init__(self, txt_embed, params):
         super(Decoder, self).__init__()
 
@@ -158,3 +149,21 @@ class Decoder(nn.Module):
         next_word_embed, hidden = self.LSTM(token_embeddings, hidden)
 
         return next_word_embed, hidden
+
+
+class ImageEmbedding(nn.Module):
+
+    def __init__(self):  #, output_size=1024):
+        super(ImageEmbedding, self).__init__()
+        self.cnn = models.vgg19_bn(pretrained=True).features
+
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+        # self.fc = nn.Sequential(nn.Linear(512, output_size), nn.Tanh())
+
+    def forward(self, image, image_ids):
+        # N * 224 * 224 -> N * 512 * 7 * 7
+        image_features = self.cnn(image)
+
+        return image_features
