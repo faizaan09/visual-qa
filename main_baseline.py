@@ -210,11 +210,6 @@ if __name__ == "__main__":
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
-        '--imageSize',
-        type=int,
-        default=224,
-        help='the height / width of the input image to network')
-    parser.add_argument(
         '--txt_emb_size',
         type=int,
         default=100,
