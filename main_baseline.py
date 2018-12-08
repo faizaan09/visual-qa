@@ -106,6 +106,11 @@ def main(params):
 
     for epoch in range(1, params['niter'] + 1):
 
+        total_val_loss = 0
+        total_val_matches = 0
+        total_train_loss = 0
+        total_train_matches = 0
+
         for i, row in enumerate(train_iter):
 
             vqa_model.train()
@@ -132,60 +137,70 @@ def main(params):
             pred_ans = vqa_model(img_ind_var, question_var)
 
             train_loss = criterion(pred_ans, ans_var)
+
+            pred_ind = pred_ans.max(dim=1)[1]
+            train_acc = (pred_ind == ans_var).sum()
+
+            total_train_loss += train_loss.item()
+            total_train_matches += train_acc.item()
+
             train_loss.backward()
             optimizer.step()
 
             if i % 1000 == 0:
+                print('[%d/%d][%d/%d] train_loss: %.4f' %
+                      (epoch, params['niter'], i + 1, len(train_iter),
+                       train_loss))
 
-                vqa_model.eval()
-                total_loss = 0
-                total_matches = 0
+        vqa_model.eval()
+        for row in val_iter:
 
-                for row in val_iter:
+            if len(row) < params['batch_size']:
+                continue
 
-                    if len(row) < params['batch_size']:
-                        continue
+            vqa_model.hidden = repackage_hidden(vqa_model.hidden)
+            vqa_model.zero_grad()
+            ans, img_ind, question = row.ans, row.img_ind, row.question
 
-                    vqa_model.hidden = repackage_hidden(vqa_model.hidden)
-                    vqa_model.zero_grad()
-                    ans, img_ind, question = row.ans, row.img_ind, row.question
+            batch_size = ans.size(0)
 
-                    batch_size = ans.size(0)
+            if params['cuda']:
+                ans = ans.cuda()
+                img_ind = img_ind.cuda()
+                question = question.cuda()
+                vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
 
-                    if params['cuda']:
-                        ans = ans.cuda()
-                        img_ind = img_ind.cuda()
-                        question = question.cuda()
-                        vqa_model.hidden = tuple(
-                            [v.cuda() for v in vqa_model.hidden])
+            ans_var = Variable(ans)
+            img_ind_var = Variable(img_ind)
+            question_var = Variable(question)
 
-                    ans_var = Variable(ans)
-                    img_ind_var = Variable(img_ind)
-                    question_var = Variable(question)
+            pred_ans = vqa_model(img_ind_var, question_var)
 
-                    pred_ans = vqa_model(img_ind_var, question_var)
+            val_loss = criterion(pred_ans, ans_var)
+            pred_ind = pred_ans.max(dim=1)[1]
+            val_acc = (pred_ind == ans_var).sum()
+            total_val_loss += val_loss.item()
+            total_val_matches += val_acc.item()
 
-                    val_loss = criterion(pred_ans, ans_var)
+        print(
+            '[%d/%d] train_loss: %.4f val_loss: %.4f train_acc: %.4f val_acc: %.4f'
+            % (epoch, params['niter'], total_train_loss / len(train_iter),
+               total_train_matches * 100 / len(train_iter) /
+               params['batch_size'], total_val_loss / len(val_iter),
+               total_val_matches * 100 / len(val_iter) / params['batch_size']))
 
-                    pred_ind = pred_ans.max(
-                        dim=1)[1]  #max returns a tuple of values and indices
-                    val_acc = (pred_ind == ans_var).sum()
-                    total_loss += val_loss.item()
-                    total_matches += val_acc.item()
-
-                print(
-                    '[%d/%d][%d/%d] train_loss: %.4f val_loss: %.4f val_acc: %.4f'
-                    % (epoch, params['niter'], i + 1, len(train_iter),
-                       train_loss, total_loss / len(val_iter),
-                       total_matches * 100 / len(val_iter) / batch_size))
-
-                writer.add_scalars(
-                    'data', {
-                        'train_loss': train_loss,
-                        'val_loss': total_loss / len(val_iter),
-                        'val_acc':
-                        total_matches * 100 / len(val_iter) / batch_size
-                    }, i * epoch)
+        writer.add_scalars(
+            'data', {
+                'train_loss':
+                train_loss,
+                'train_acc':
+                total_train_matches * 100 / len(train_iter) /
+                params['batch_size'],
+                'val_loss':
+                total_val_loss / len(val_iter),
+                'val_acc':
+                total_val_matches * 100 / len(val_iter) / params['batch_size']
+            }, epoch)
 
         torch.save({
             'lstm_hidden': vqa_model.hidden,
@@ -213,7 +228,7 @@ if __name__ == "__main__":
         help='output pkl file with img features')
     parser.add_argument(
         '--mcq_model',
-        default='output/20181208_0119/baseline_15.pth',
+        default='output/checkpoint/baseline_15.pth',
         help='saved baseline model path')
     parser.add_argument(
         '--dataroot', default='./data/', help='path to dataset')
