@@ -140,8 +140,6 @@ def main(params):
                                            device=device)
 
     for epoch in range(params['niter']):
-        loss = 0
-        accuracy = 0
 
         for is_train in (True, False):
             print('Is Training: ', is_train)
@@ -154,9 +152,12 @@ def main(params):
                 decoder.eval()
                 data_iter = val_iter
 
+            loss = 0
+            accuracy = 0
+
             with torch.set_grad_enabled(is_train):
 
-                for i, row in enumerate(data_iter):
+                for i, row in enumerate(data_iter, 1):
 
                     if len(row) < params['batch_size']:
                         continue
@@ -165,18 +166,18 @@ def main(params):
                     decoder.zero_grad()
 
                     ans, img_ind, question = row.ans, row.img_ind, row.question
-                    target_length = ans.shape[
-                        1] - 1  ## target_length-1 since we are not predicting SOS token
                     batch_size = params['batch_size']
+
+                    ## target_length-1 since we are not predicting SOS token
+                    target_length = ans.shape[1] - 1
 
                     encoder.hidden = encoder.init_hidden(params)
 
-                    if params['cuda']:
-                        ans = ans.cuda()
-                        img_ind = img_ind.cuda()
-                        question = question.cuda()
-                        encoder.hidden = (encoder.hidden[0].cuda(),
-                                          encoder.hidden[1].cuda())
+                    ans = ans.to(device)
+                    img_ind = img_ind.to(device)
+                    question = question.to(device)
+                    encoder.hidden = (encoder.hidden[0].to(device),
+                                      encoder.hidden[1].to(device))
 
                     img_ind = Variable(img_ind)
                     question = Variable(question)
@@ -189,8 +190,7 @@ def main(params):
                     ans_embed = ans_embed[:, 1:]  ## removed the SOS token
                     ans = ans[:, 1:]  ## removed the SOS token
 
-                    decoder_hidden = decoder.init_hidden(
-                        encoder_output, params)
+                    decoder_hidden = decoder.init_hidden(encoder_output, params)
 
                     if params['cuda']:
                         decoder_hidden = (decoder_hidden[0].cuda(),
@@ -231,18 +231,11 @@ def main(params):
                             print(
                                 '[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f'
                                 % (epoch, params['niter'], i, len(data_iter),
-                                   loss, accuracy))
-
-                            writer.add_scalars('data', {
-                                'train_loss': loss,
-                                'train_acc': accuracy
-                            }, i * epoch)
+                                   loss / i, accuracy / i))
 
                         loss.backward()
                         encoder_optimizer.step()
                         decoder_optimizer.step()
-                        loss = 0
-                        accuracy = 0
 
                 if is_train:
                     PATH = os.path.join(output_dir, 'enc_dec_model.pth')
@@ -256,16 +249,22 @@ def main(params):
                         'decoder_optimizer_state_dict':
                         decoder_optimizer.state_dict(),
                     }, PATH)
-                else:
-                    print('Calculating Validation loss')
-                    print('val_loss: %.4f, Accuracy: %.4f' %
-                          (loss / len(val_iter), accuracy / len(data_iter)))
 
                     writer.add_scalars(
                         'data', {
-                            'val_loss': loss / len(val_iter),
+                            'train_loss': loss / len(data_iter),
                             'train_acc': accuracy / len(data_iter)
-                        }, i * epoch)
+                        }, epoch)
+                else:
+                    print('Calculating Validation loss')
+                    print('val_loss: %.4f, Accuracy: %.4f' %
+                          (loss / len(data_iter), accuracy / len(data_iter)))
+
+                    writer.add_scalars(
+                        'data', {
+                            'val_loss': loss / len(data_iter),
+                            'val_acc': accuracy / len(data_iter)
+                        }, epoch)
 
     writer.close()
 
@@ -293,13 +292,9 @@ if __name__ == "__main__":
         '--enc_dec_model',
         default='output/enc_dec_model.pth',
         help='Saved model path')
+    parser.add_argument('--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
-        '--dataroot', default='./data/', help='path to dataset')
-    parser.add_argument(
-        '--workers',
-        type=int,
-        help='number of data loading workers',
-        default=2)
+        '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
