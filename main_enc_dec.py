@@ -108,21 +108,18 @@ def main(params):
         loss = 0
         accuracy = 0
 
-        for mode in ('train', 'eval'):
-            # import pdb; pdb.set_trace()
-            print('Mode: ', mode)
-            if mode == 'train':
+        for is_train in (True, False):
+            print('Is Training: ', is_train)
+            if is_train:
                 encoder.train()
                 decoder.train()
                 data_iter = train_iter
-                grad_mode = True
             else:
                 encoder.eval()
                 decoder.eval()
                 data_iter = val_iter
-                grad_mode = False
             
-            with torch.set_grad_enabled(grad_mode):
+            with torch.set_grad_enabled(is_train):
 
                 for i, row in enumerate(data_iter):
 
@@ -134,7 +131,6 @@ def main(params):
 
                     ans, img_ind, question = row.ans, row.img_ind, row.question
                     target_length = ans.shape[1]-1 ## target_length-1 since we are not predicting SOS token
-                    # batch_size = ans.size(0)
                     batch_size = params['batch_size']
 
                     encoder.hidden = encoder.init_hidden(params)
@@ -186,7 +182,7 @@ def main(params):
 
                     accuracy += word_accuracy(filtered_outputs, vocab.vectors.to(device), filtered_labels)
                     
-                    if mode == 'train':
+                    if is_train:
                         if i%1000 == 0:
                             print('[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f' %(epoch, params['niter'], i, len(data_iter), loss, accuracy))
 
@@ -196,7 +192,7 @@ def main(params):
                         loss = 0
                         accuracy = 0
                                 
-                if mode == 'train':
+                if is_train:
                     PATH = os.path.join(output_dir, 'enc_dec_model.pth')
                     torch.save({
                         'encoder_state_dict': encoder.state_dict(),
@@ -219,18 +215,13 @@ if __name__ == "__main__":
     parser.add_argument('--input_test', default='vqa_test.csv', help='input json file')
     parser.add_argument('--mapping_file', default='image_index.pkl', help='This files contains the img_id to path mapping and vice versa')
     parser.add_argument('--image_embeddings', default='./data/img_embedding.pkl', help='output pkl file with img features')
-
+    parser.add_argument('--enc_dec_model', default='output/enc_dec_model.pth', help='Saved model path')
     parser.add_argument(
         '--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
         '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
-    parser.add_argument(
-        '--imageSize',
-        type=int,
-        default=224,
-        help='the height / width of the input image to network')
     parser.add_argument(
         '--txt_emb_size',
         type=int,
