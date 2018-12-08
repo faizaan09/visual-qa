@@ -5,7 +5,6 @@ import random
 import argparse
 import json
 import spacy
-import model
 import pickle as pkl
 import torch.nn as nn
 import torch.nn.parallel
@@ -15,12 +14,13 @@ import torch.utils.data
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from datetime import datetime
+from model import Encoder, Decoder
+from metrics import filterOutput, maskedLoss, word_accuracy
 from torchtext.data import TabularDataset, Field, Iterator
 
 spacy_en = spacy.load('en')
 def tokenizer(text): # create a tokenizer function
-    return [tok.text for tok in spacy_en.tokenizer(text)]
-
+    return [tok.text for tok in spacy_en.tokenizer(text)]    
 
 def main(params):
     try:
@@ -36,6 +36,7 @@ def main(params):
 
     SOS_token = '<sos>'
     EOS_token = '<eos>'
+    PAD_token = '<pad>'
 
     TEXT = Field(sequential=True, use_vocab=True, tokenize=tokenizer, lower=True, batch_first=True, init_token=SOS_token, eos_token=EOS_token)
     # LABEL = Field(sequential=True, use_vocab=True, tokenize=tokenizer, is_target=True, batch_first=True, init_token='#', eos_token='$')
@@ -49,7 +50,8 @@ def main(params):
                 validation=params['input_test'], 
                 format='csv',
                 skip_header=False, 
-                fields=fields
+                fields=fields,
+
                 )
 
     print("Train data")
@@ -64,9 +66,11 @@ def main(params):
     TEXT.build_vocab(train, vectors='glove.6B.100d')
     vocab = TEXT.vocab
 
-    print("Creating Embedding from vocab vectors ..")    
-    # embed = nn.Embedding(len(vocab), params['nte'])
-    # embed.weight.data.copy_(vocab.vectors)
+    PAD_token_ind = vocab.stoi[PAD_token]
+    SOS_token_ind = vocab.stoi[SOS_token]
+    EOS_token_ind = vocab.stoi[EOS_token]
+
+    print("Creating Embedding from vocab vectors ..")
     txt_embed = nn.Embedding.from_pretrained(vocab.vectors)
     print("Text Embeddings are generated of size ", txt_embed.weight.size())
 
@@ -77,11 +81,11 @@ def main(params):
     img_embed = nn.Embedding.from_pretrained(torch.FloatTensor(img_embs)) 
 
     print("Creating Encoder ..")
-    encoder = model.Encoder(img_embed, txt_embed, params)
+    encoder = Encoder(img_embed, txt_embed, params)
     print(encoder)
     
     print("Creating Decoder ..")
-    decoder = model.Decoder(txt_embed, params)
+    decoder = Decoder(txt_embed, params)
     print(decoder)
 
     criterion = torch.nn.PairwiseDistance(keepdim=False)
@@ -91,86 +95,103 @@ def main(params):
         decoder.cuda()
         criterion.cuda()
 
-    encoder_optimizer = torch.optim.Adam(encoder.parameters(), lr=params['lr'])
-    decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=params['lr'])
+    encoder_optimizer = torch.optim.Adam(encoder.parameters(), lr=params['lr'], weight_decay=1e-5, amsgrad=True)
+    decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=params['lr'], weight_decay=1e-5, amsgrad=True)
 
-    train_iter, val_iter = Iterator.splits((train, val), batch_sizes=(params['batch_size'], params['batch_size']))
+    train_iter, val_iter = Iterator.splits((train, val), 
+                                            batch_sizes=(params['batch_size'], params['batch_size']),
+                                            sort=False)
 
     for epoch in range(params['niter']):
-        encoder.train()
-        decoder.train()
-        for i, row in enumerate(train_iter):
-            loss = 0
+        loss = 0
+        accuracy = 0
 
-            encoder.zero_grad()
-            decoder.zero_grad()
+        for mode in ('train', 'eval'):
+            print('Mode: ', mode)
+            if mode == 'train':
+                encoder.train()
+                decoder.train()
+                data_iter = train_iter
+            else:
+                encoder.eval()
+                decoder.eval()
+                data_iter = val_iter
 
-            ans, img_ind, question = row.ans, row.img_ind, row.question
-            target_length = ans.shape[1]
-            # batch_size = ans.size(0)
-            batch_size = params['batch_size']
-            encoder.hidden = encoder.init_hidden(params)
+            for i, row in enumerate(data_iter):
 
-            if params['cuda']:
-                ans = ans.cuda()
-                img_ind = img_ind.cuda()
-                question = question.cuda()
-                encoder.hidden = (encoder.hidden[0].cuda(), encoder.hidden[1].cuda())
+                if len(row) < params['batch_size']:
+                    continue
 
-            # img_ind = Variable(img_ind)
-            # question = Variable(question)
-            ans_embed = txt_embed(ans)
+                encoder.zero_grad()
+                decoder.zero_grad()
 
-            encoder_output = encoder(img_ind, question)
+                ans, img_ind, question = row.ans, row.img_ind, row.question
+                target_length = ans.shape[1]-1 ## target_length-1 since we are not predicting SOS token
+                # batch_size = ans.size(0)
+                batch_size = params['batch_size']
 
-            decoder_input = torch.tensor(ans[0][0], device=device)
-            decoder_hidden = decoder.init_hidden(encoder_output, params)
+                encoder.hidden = encoder.init_hidden(params)
 
-            if params['cuda']:
-                decoder_hidden = (decoder_hidden[0].cuda(), decoder_hidden[1].cuda())
+                if params['cuda']:
+                    ans = ans.cuda()
+                    img_ind = img_ind.cuda()
+                    question = question.cuda()
+                    encoder.hidden = (encoder.hidden[0].cuda(), encoder.hidden[1].cuda())
 
+                # img_ind = Variable(img_ind)
+                # question = Variable(question)
+                ans_embed = txt_embed(ans)
 
-            for di in range(target_length):
-                decoder_input = decoder_input.reshape((1,-1)).to(device)
-                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
-                topv, topi = decoder_output.topk(1)
+                encoder_output = encoder(img_ind, question)
+
+                decoder_input = ans_embed[:, 0].reshape((batch_size,1,-1)) ## (batch_size, 1) check again
+                ans_embed = ans_embed[:, 1:] ## removed the SOS token
+                ans = ans[:, 1:] ## removed the SOS token
+
+                decoder_hidden = decoder.init_hidden(encoder_output, params)
+
+                if params['cuda']:
+                    decoder_hidden = (decoder_hidden[0].cuda(), decoder_hidden[1].cuda())
+
+                outputs = torch.zeros(batch_size, target_length, params['txt_emb_size'])
+
                 
-                decoder_input = topi.squeeze().detach()  # detach from history as input
+                ## [Completed] TODO(Jay) : remove the sos token from the ans and ans_embed before calc loss and acc
+                for di in range(target_length-1):
+                    decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
+                    decoder_input = decoder_output
+                    
+                    outputs[:, di, :] = decoder_output.reshape(batch_size,-1)
 
-                loss += criterion(decoder_output.reshape((batch_size, -1)), ans_embed[0][di].reshape((batch_size, -1)))
-                if decoder_input.item() == EOS_token:
-                    break
+                filtered_labels, filtered_label_embeds, filtered_outputs = filterOutput(outputs.reshape(batch_size*target_length, -1), 
+                                                                        ans.reshape(batch_size*target_length, -1),
+                                                                        ans_embed.reshape(batch_size*target_length, -1),
+                                                                        PAD_token_ind)
 
-            loss.backward()
-            encoder_optimizer.step()
-            decoder_optimizer.step()
+                filtered_label_embeds = filtered_label_embeds.to(device)
+                filtered_outputs = filtered_outputs.to(device)
 
-            print('[%d/%d][%d/%d] train_loss: %.4f' %(epoch, params['niter'],i, len(train_iter), loss))
+                loss += maskedLoss(filtered_label_embeds, 
+                                    filtered_outputs,
+                                    criterion)
 
-        # if epoch % 5 == 0:
-        #     print('Calculating Validation loss')
-        #     vqa_model.eval()
-        #     avg_loss = 0
-        #     for i, row in enumerate(val_iter):
+                if mode == 'train':
+                    if i%1000 == 0:
+                        accuracy = word_accuracy(filtered_outputs, vocab.vectors.to(device), filtered_labels)
+                        print('[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f' %(epoch, params['niter'], i, len(data_iter), loss, accuracy))
 
-        #         vqa_model.zero_grad()
-        #         ans, img_ind, question = row.ans, row.img_ind, row.question
-                
-        #         batch_size = ans.size(0)
-
-        #         if params['cuda']:
-        #             ans = ans.cuda()
-        #             img_ind = img_ind.cuda()
-        #             question = question.cuda()
-
-        #         pred_ans = vqa_model(img_ind, question)
-                
-        #         val_loss = criterion(pred_ans, ans)
-
-        #         avg_loss += val_loss
-            
-        #     print('val_loss: %.4f' %(avg_loss/len(val_iter)))
- 
+                    loss.backward()
+                    encoder_optimizer.step()
+                    decoder_optimizer.step()
+                    loss = 0
+                    accuracy = 0
+                            
+            if mode == 'train':
+                torch.save(encoder.state_dict(), '%s/encoder.pth' % (output_dir))
+                torch.save(decoder.state_dict(), '%s/decoder.pth' % (output_dir))
+            else:            
+                print('Calculating Validation loss')
+                print('val_loss: %.4f' %(loss/len(val_iter)))
 
     
 
@@ -189,7 +210,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
-        '--batch_size', type=int, default=1, help='input batch size')
+        '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
         '--imageSize',
         type=int,
@@ -208,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--niter', type=int, default=25, help='number of epochs to train for')
     parser.add_argument(
-        '--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
+        '--lr', type=float, default=0.0001, help='learning rate, default=0.0001')
     parser.add_argument(
         '--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')

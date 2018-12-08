@@ -102,20 +102,24 @@ class Decoder(nn.Module):
     def __init__(self, txt_embed, params):
         super(Decoder, self).__init__()
         
-        self.text_embedding = txt_embed
-        self.LSTM = nn.LSTM(params['txt_emb_size'], params['txt_emb_size'])
+        self.relu = torch.nn.ReLU()
+        # self.text_embedding = txt_embed
+        self.LSTM = nn.LSTM(params['txt_emb_size'], params['txt_emb_size'], batch_first=True)
         # self.hidden = encoder_output
 
     def init_hidden(self, encoder_output, params):
-        return (torch.reshape(encoder_output, shape=(1, params['batch_size'], -1)), 
+        return (encoder_output.reshape(shape=(1, params['batch_size'], params['txt_emb_size'])), 
                 torch.zeros(1, params['batch_size'], params['txt_emb_size']))
 
     def forward(self, input, hidden):
         
-        token_embeddings  = self.text_embedding(input)
-
+        # token_embeddings  = self.text_embedding(input)
+        token_embeddings = input
+        token_embeddings = self.relu(token_embeddings)
         next_word_embed, hidden = self.LSTM(token_embeddings, hidden)
 
         return next_word_embed, hidden
+
+
 
 
