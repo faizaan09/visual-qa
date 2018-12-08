@@ -100,98 +100,113 @@ def main(params):
 
     train_iter, val_iter = Iterator.splits((train, val), 
                                             batch_sizes=(params['batch_size'], params['batch_size']),
-                                            sort=False)
+                                            sort=False,
+                                            shuffle=True,
+                                            device=device)
 
     for epoch in range(params['niter']):
         loss = 0
         accuracy = 0
 
         for mode in ('train', 'eval'):
+            # import pdb; pdb.set_trace()
             print('Mode: ', mode)
             if mode == 'train':
                 encoder.train()
                 decoder.train()
                 data_iter = train_iter
+                grad_mode = True
             else:
                 encoder.eval()
                 decoder.eval()
                 data_iter = val_iter
+                grad_mode = False
+            
+            with torch.set_grad_enabled(grad_mode):
 
-            for i, row in enumerate(data_iter):
+                for i, row in enumerate(data_iter):
 
-                if len(row) < params['batch_size']:
-                    continue
+                    if len(row) < params['batch_size']:
+                        continue
 
-                encoder.zero_grad()
-                decoder.zero_grad()
+                    encoder.zero_grad()
+                    decoder.zero_grad()
 
-                ans, img_ind, question = row.ans, row.img_ind, row.question
-                target_length = ans.shape[1]-1 ## target_length-1 since we are not predicting SOS token
-                # batch_size = ans.size(0)
-                batch_size = params['batch_size']
+                    ans, img_ind, question = row.ans, row.img_ind, row.question
+                    target_length = ans.shape[1]-1 ## target_length-1 since we are not predicting SOS token
+                    # batch_size = ans.size(0)
+                    batch_size = params['batch_size']
 
-                encoder.hidden = encoder.init_hidden(params)
+                    encoder.hidden = encoder.init_hidden(params)
 
-                if params['cuda']:
-                    ans = ans.cuda()
-                    img_ind = img_ind.cuda()
-                    question = question.cuda()
-                    encoder.hidden = (encoder.hidden[0].cuda(), encoder.hidden[1].cuda())
+                    if params['cuda']:
+                        ans = ans.cuda()
+                        img_ind = img_ind.cuda()
+                        question = question.cuda()
+                        encoder.hidden = (encoder.hidden[0].cuda(), encoder.hidden[1].cuda())
 
-                # img_ind = Variable(img_ind)
-                # question = Variable(question)
-                ans_embed = txt_embed(ans)
+                    img_ind = Variable(img_ind)
+                    question = Variable(question)
+                    ans_embed = txt_embed(ans)
 
-                encoder_output = encoder(img_ind, question)
+                    encoder_output = encoder(img_ind, question)
 
-                decoder_input = ans_embed[:, 0].reshape((batch_size,1,-1)) ## (batch_size, 1) check again
-                ans_embed = ans_embed[:, 1:] ## removed the SOS token
-                ans = ans[:, 1:] ## removed the SOS token
+                    decoder_input = ans_embed[:, 0].reshape((batch_size,1,-1)) ## (batch_size, 1) check again
+                    ans_embed = ans_embed[:, 1:] ## removed the SOS token
+                    ans = ans[:, 1:] ## removed the SOS token
 
-                decoder_hidden = decoder.init_hidden(encoder_output, params)
+                    decoder_hidden = decoder.init_hidden(encoder_output, params)
 
-                if params['cuda']:
-                    decoder_hidden = (decoder_hidden[0].cuda(), decoder_hidden[1].cuda())
+                    if params['cuda']:
+                        decoder_hidden = (decoder_hidden[0].cuda(), decoder_hidden[1].cuda())
 
-                outputs = torch.zeros(batch_size, target_length, params['txt_emb_size'])
+                    outputs = torch.zeros(batch_size, target_length, params['txt_emb_size'])
 
-                
-                ## [Completed] TODO(Jay) : remove the sos token from the ans and ans_embed before calc loss and acc
-                for di in range(target_length-1):
-                    decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
-                    decoder_input = decoder_output
                     
-                    outputs[:, di, :] = decoder_output.reshape(batch_size,-1)
+                    ## [Completed] TODO(Jay) : remove the sos token from the ans and ans_embed before calc loss and acc
+                    for di in range(target_length-1):
+                        decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
 
-                filtered_labels, filtered_label_embeds, filtered_outputs = filterOutput(outputs.reshape(batch_size*target_length, -1), 
-                                                                        ans.reshape(batch_size*target_length, -1),
-                                                                        ans_embed.reshape(batch_size*target_length, -1),
-                                                                        PAD_token_ind)
+                        ## TODO(Jay) : Detach the input from history                    
+                        decoder_input = decoder_output
 
-                filtered_label_embeds = filtered_label_embeds.to(device)
-                filtered_outputs = filtered_outputs.to(device)
+                        outputs[:, di, :] = decoder_output.reshape(batch_size,-1)
 
-                loss += maskedLoss(filtered_label_embeds, 
-                                    filtered_outputs,
-                                    criterion)
+                    filtered_labels, filtered_label_embeds, filtered_outputs = filterOutput(outputs.reshape(batch_size*target_length, -1), 
+                                                                            ans.reshape(batch_size*target_length, -1),
+                                                                            ans_embed.reshape(batch_size*target_length, -1),
+                                                                            PAD_token_ind)
 
+                    filtered_label_embeds = filtered_label_embeds.to(device)
+                    filtered_outputs = filtered_outputs.to(device)
+
+                    loss += maskedLoss(filtered_label_embeds, 
+                                        filtered_outputs,
+                                        criterion)
+
+                    accuracy += word_accuracy(filtered_outputs, vocab.vectors.to(device), filtered_labels)
+                    
+                    if mode == 'train':
+                        if i%1000 == 0:
+                            print('[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f' %(epoch, params['niter'], i, len(data_iter), loss, accuracy))
+
+                        loss.backward()
+                        encoder_optimizer.step()
+                        decoder_optimizer.step()
+                        loss = 0
+                        accuracy = 0
+                                
                 if mode == 'train':
-                    if i%1000 == 0:
-                        accuracy = word_accuracy(filtered_outputs, vocab.vectors.to(device), filtered_labels)
-                        print('[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f' %(epoch, params['niter'], i, len(data_iter), loss, accuracy))
-
-                    loss.backward()
-                    encoder_optimizer.step()
-                    decoder_optimizer.step()
-                    loss = 0
-                    accuracy = 0
-                            
-            if mode == 'train':
-                torch.save(encoder.state_dict(), '%s/encoder.pth' % (output_dir))
-                torch.save(decoder.state_dict(), '%s/decoder.pth' % (output_dir))
-            else:            
-                print('Calculating Validation loss')
-                print('val_loss: %.4f' %(loss/len(val_iter)))
+                    PATH = os.path.join(output_dir, 'enc_dec_model.pth')
+                    torch.save({
+                        'encoder_state_dict': encoder.state_dict(),
+                        'decoder_state_dict': encoder.state_dict(),
+                        'encoder_optimizer_state_dict': encoder_optimizer.state_dict(),
+                        'decoder_optimizer_state_dict': decoder_optimizer.state_dict(),
+                        }, PATH)
+                else:            
+                    print('Calculating Validation loss')
+                    print('val_loss: %.4f, Accuracy: %.4f' %(loss/len(val_iter), accuracy/len(data_iter)))
 
     
 
@@ -232,7 +247,7 @@ if __name__ == "__main__":
         '--lr', type=float, default=0.0001, help='learning rate, default=0.0001')
     parser.add_argument(
         '--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-    parser.add_argument('--cuda', action='store_true', help='enables cuda')
+    parser.add_argument('--cuda', default=True, action='store_true', help='enables cuda')
     parser.add_argument(
         '--outf',
         default='./output/',
