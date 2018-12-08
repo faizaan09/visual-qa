@@ -152,8 +152,8 @@ def main(params):
                 decoder.eval()
                 data_iter = val_iter
 
-            loss = 0
-            accuracy = 0
+            total_loss = 0
+            total_acc = 0
 
             with torch.set_grad_enabled(is_train):
 
@@ -219,23 +219,29 @@ def main(params):
                     filtered_label_embeds = filtered_label_embeds.to(device)
                     filtered_outputs = filtered_outputs.to(device)
 
-                    loss += maskedLoss(filtered_label_embeds, filtered_outputs,
-                                       criterion)
+                    batch_loss = maskedLoss(filtered_label_embeds,
+                                            filtered_outputs, criterion)
 
-                    accuracy += word_accuracy(filtered_outputs,
+                    batch_acc = word_accuracy(filtered_outputs,
                                               vocab.vectors.to(device),
                                               filtered_labels)
+
+                    total_loss += batch_loss.item()
+                    total_acc += batch_acc
 
                     if is_train:
                         if i % 1000 == 0:
                             print(
                                 '[%d/%d][%d/%d] train_loss: %.4f, Accuracy: %.4f'
                                 % (epoch, params['niter'], i, len(data_iter),
-                                   loss / i, accuracy / i))
+                                   total_loss / i, total_acc / i))
 
-                        loss.backward()
+                        batch_loss.backward()
                         encoder_optimizer.step()
                         decoder_optimizer.step()
+
+                avg_loss = total_loss / len(data_iter)
+                avg_acc = total_acc / len(data_iter)
 
                 if is_train:
                     PATH = os.path.join(output_dir, 'enc_dec_model.pth')
@@ -250,21 +256,19 @@ def main(params):
                         decoder_optimizer.state_dict(),
                     }, PATH)
 
-                    writer.add_scalars(
-                        'data', {
-                            'train_loss': loss / len(data_iter),
-                            'train_acc': accuracy / len(data_iter)
-                        }, epoch)
+                    writer.add_scalars('data', {
+                        'train_loss': avg_loss,
+                        'train_acc': avg_acc
+                    }, epoch)
                 else:
                     print('Calculating Validation loss')
-                    print('val_loss: %.4f, Accuracy: %.4f' %
-                          (loss / len(data_iter), accuracy / len(data_iter)))
+                    print(
+                        'val_loss: %.4f, Accuracy: %.4f' % (avg_loss, avg_acc))
 
-                    writer.add_scalars(
-                        'data', {
-                            'val_loss': loss / len(data_iter),
-                            'val_acc': accuracy / len(data_iter)
-                        }, epoch)
+                    writer.add_scalars('data', {
+                        'val_loss': avg_loss,
+                        'val_acc': avg_acc
+                    }, epoch)
 
     writer.close()
 
