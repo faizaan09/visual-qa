@@ -13,7 +13,7 @@ import torch.optim as optim
 import torch.utils.data
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from datetime import datetime
-from model import Encoder_attn, Decoder
+from model import *
 from metrics import filterOutput, maskedLoss, word_accuracy
 from torchtext.data import TabularDataset, Field, Iterator
 from tensorboardX import SummaryWriter
@@ -98,7 +98,7 @@ def main(params):
     img_embed = nn.Embedding.from_pretrained(torch.FloatTensor(img_embs))
 
     print("Creating Encoder_attn ..")
-    encoder = Encoder_attn(img_embed, txt_embed, params)
+    encoder = Encoder(img_embed, txt_embed, params)
     print(encoder)
 
     print("Creating Decoder ..")
@@ -314,7 +314,8 @@ if __name__ == "__main__":
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
         '--n_layers', type=int, default=2, help='Num of layers in LSTM')
-    parser.add_argument('--bidirection', help='Bidirectional LSTM')
+    parser.add_argument(
+        '--bidirection', default=True, help='Bidirectional LSTM')
     parser.add_argument(
         '--txt_emb_size',
         type=int,

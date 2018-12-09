@@ -69,6 +69,7 @@ class Encoder(nn.Module):
         self.n_layers = params['n_layers']
         self.direction = 1 + int(params['bidirection'])
 
+        ## TODO(Jay) : Change the model output size for bidirectional
         self.parse_quest = nn.LSTM(
             params['txt_emb_size'],
             params['txt_emb_size'],
@@ -210,14 +211,98 @@ class ImageEmbedding(nn.Module):
     def __init__(self):  #, output_size=1024):
         super(ImageEmbedding, self).__init__()
         self.cnn = models.vgg19_bn(pretrained=True).features
+        self.cnn.eval()
+        self.output_size = (-1, 512, 7, 7)
 
         for param in self.cnn.parameters():
             param.requires_grad = False
 
         # self.fc = nn.Sequential(nn.Linear(512, output_size), nn.Tanh())
 
-    def forward(self, image, image_ids):
+    def forward(self, image):
         # N * 224 * 224 -> N * 512 * 7 * 7
         image_features = self.cnn(image)
 
         return image_features
+
+
+class Encoder_2d_attn(nn.Module):
+
+    def __init__(self, img, txt_embed, params):
+        super(Encoder_2d_attn, self).__init__()
+
+        self.n_layers = params['n_layers']
+        self.direction = 1 + int(params['bidirection'])
+
+        self.img_features = ImageEmbedding()
+        self.text_embedding = txt_embed
+        self.feature_map_size = self.img_features.output_size
+
+        attention_input_size = feature_map_side**2 + params['txt_emb_size']
+
+        ## TODO(Jay) : Change the model output size for bidirectional
+        self.parse_quest = nn.LSTM(
+            params['txt_emb_size'],
+            params['txt_emb_size'],
+            num_layers=self.n_layers,
+            dropout=0.3,
+            bidirectional=params['bidirection'],
+            batch_first=True)
+
+        self.hidden = self.init_hidden(params)
+
+        self.attention = nn.Sequential(
+            nn.Linear(attention_input_size, 49), nn.Sigmoid())
+
+        self.fusion = nn.Sequential(
+            nn.BatchNorm1d(params['img_feature_size'] + params['txt_emb_size']),
+            nn.LeakyReLU(), nn.Dropout(),
+            nn.Linear(params['img_feature_size'] + params['txt_emb_size'],
+                      2500), nn.BatchNorm1d(2500), nn.LeakyReLU(True),
+            nn.Dropout(), nn.Linear(2500, params['txt_emb_size']),
+            nn.LeakyReLU(True))
+
+    def init_hidden(self, params):
+        # Before we've done anything, we dont have any hidden state.
+        # Refer to the Pytorch documentation to see exactly
+        # why they have this dimensionality.
+        # The axes semantics are (num_layers, minibatch_size, hidden_dim)
+        return (torch.zeros(params['n_layers'] * self.direction,
+                            params['batch_size'], params['txt_emb_size']),
+                torch.zeros(params['n_layers'] * self.direction,
+                            params['batch_size'], params['txt_emb_size']))
+
+    def forward(self, img, quest):
+        batch_size = quest.shape[0]
+
+        img_embedding = self.img_features(img)  ## batch x 512 x 7 x 7
+        token_embeddings = self.text_embedding(quest)  ## batch x sent_len x 100
+        ## TODO(Jay) : Add dropout after text embeddings
+
+        output, self.hidden = self.parse_quest(token_embeddings, self.hidden)
+        quest_embedding = self.hidden[0][0]  ## batch x 100
+
+        ## convert img_embed to ((batch x 512) x 49)
+        img_embedding_feats = img_embedding.reshape(
+            batch_size * self.feature_map_size[1], -1)
+
+        ## convert quest_embed (batch x 100) to ((batch x 512) x 49)
+        quest_embedding_feats = self.question_attn_fc(100, 49)  ## batch x 49
+        # quest_embedding_feats = quest_embedding_feats.reshape(
+        #     batch_size, 1, -1)  ## batch x 1 x 49
+        quest_embedding_feats = quest_embedding_feats.repeat(
+            512, 1)  ## (batch x 512) x 49
+
+        ## multiply the quest_embedding_feats and img_embedding and pass
+        # it to the attn layer to generate the attention weights
+        self.attention(quest_embedding_feats.mul(img_embedding_feats))
+
+        ## attention_weights size (batch x 512 x 7 x 7)
+
+        ## update -> img_embed * attention_weights
+        ## sum over the channel dimension, output -> batch x 1 x 7 x 7
+
+        quest_img_vector = torch.cat((img_embedding, quest_embedding), 1)
+        context = self.fusion(quest_img_vector)
+
+        return context
