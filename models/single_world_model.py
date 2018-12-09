@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 class VQAModel(nn.Module):
     def __init__(self, img_embed, txt_embed, params):
-        super(Encoder_attn, self).__init__()
+        super(VQAModel, self).__init__()
 
         self.img_features = img_embed
         self.text_embedding = txt_embed
@@ -93,7 +93,7 @@ class VQAModel(nn.Module):
         quest_feats_2 = self.question_attn_fc_2(quest_embedding)
         img_feats_2 = self.image_attn_fc_2(img_embedding)
         attention_weights_2 = self.attention_2(
-            torch.mul(quest_feats_1, img_feats_1))
+            torch.mul(quest_feats_2, img_feats_2))
         ##
 
         img_embedding = torch.mul(

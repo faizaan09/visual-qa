@@ -18,6 +18,7 @@ from models.single_world_model import VQAModel
 from metrics import filterOutput, maskedLoss, word_accuracy, getIndicesFromEmbedding
 from torchtext.data import TabularDataset, Field, Iterator
 from tensorboardX import SummaryWriter
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 spacy_en = spacy.load('en')
 
@@ -102,6 +103,8 @@ def main(params):
         weight_decay=1e-5,
         amsgrad=True)
 
+    LR_scheduler = ReduceLROnPlateau(optimizer, 'min', patience=1, factor=0.5)
+
     # optimizer = torch.optim.Adagrad(
     #     word_gen_model.parameters(), lr=params['lr'], weight_decay=1e-5)
 
@@ -109,6 +112,7 @@ def main(params):
         checkpoint = torch.load(params['enc_dec_model'])
         word_gen_model.load_state_dict(checkpoint['encoder_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        LR_scheduler.load_state_dict(checkpoint['LR_scheduler'])
 
     for epoch in range(params['niter']):
 
@@ -142,6 +146,11 @@ def main(params):
 
                     ans, img_ind, question = row.ans, row.img_ind, row.question
 
+                    # to skip examples where we have a 1 word ans, but after tokenization it becomes 2 words
+                    # e.g. mcdonald's -> [mcdonald,'s]
+                    if ans.shape[1] != 1:
+                        continue
+
                     word_gen_model.hidden = word_gen_model.init_hidden(params)
 
                     ans = ans.to(device)
@@ -160,7 +169,7 @@ def main(params):
                         encoder_output, vocab.vectors.to(device))
 
                     ans_embed = txt_embed(ans)
-                    batch_loss = criterion(encoder_output, ans_embed)
+                    batch_loss = criterion(encoder_output, ans_embed.squeeze())
 
                     batch_acc = (pred_ind == ans).sum()
 
@@ -186,6 +195,7 @@ def main(params):
                         {
                             'encoder_state_dict': word_gen_model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
+                            'LR_scheduler': LR_scheduler.state_dict(),
                         }, PATH)
 
                     writer.add_scalars('data', {
@@ -196,6 +206,8 @@ def main(params):
                     print('Calculating Validation loss')
                     print(
                         'val_loss: %.4f, Accuracy: %.4f' % (avg_loss, avg_acc))
+
+                    LR_scheduler.step(avg_loss)
 
                     writer.add_scalars('data', {
                         'val_loss': avg_loss,
@@ -257,7 +269,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument(
-        '--cuda', default=False, action='store_true', help='enables cuda')
+        '--cuda', default=True, action='store_true', help='enables cuda')
     parser.add_argument(
         '--outf',
         default='./output/',
