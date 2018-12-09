@@ -6,7 +6,6 @@ from torch.autograd import Variable
 
 
 class Model(nn.Module):
-
     def __init__(self, params):
         super(Model, self).__init__()
 
@@ -60,7 +59,6 @@ class Model(nn.Module):
 
 
 class Encoder(nn.Module):
-
     def __init__(self, img_embed, txt_embed, params):
         super(Encoder, self).__init__()
 
@@ -81,8 +79,9 @@ class Encoder(nn.Module):
         self.hidden = self.init_hidden(params)
 
         self.fusion = nn.Sequential(
-            nn.BatchNorm1d(params['img_feature_size'] + params['txt_emb_size']),
-            nn.LeakyReLU(), nn.Dropout(),
+            nn.BatchNorm1d(params['img_feature_size'] +
+                           params['txt_emb_size']), nn.LeakyReLU(),
+            nn.Dropout(),
             nn.Linear(params['img_feature_size'] + params['txt_emb_size'],
                       2500), nn.BatchNorm1d(2500), nn.LeakyReLU(True),
             nn.Dropout(), nn.Linear(2500, params['txt_emb_size']),
@@ -115,7 +114,6 @@ class Encoder(nn.Module):
 
 
 class Encoder_attn(nn.Module):
-
     def __init__(self, img_embed, txt_embed, params):
         super(Encoder_attn, self).__init__()
 
@@ -126,21 +124,44 @@ class Encoder_attn(nn.Module):
             params['txt_emb_size'], params['txt_emb_size'], batch_first=True)
         self.hidden = self.init_hidden(params)
 
-        ## attention submodule
-        self.question_attn_fc = nn.Sequential(
-            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True))
-        self.image_attn_fc = nn.Sequential(
+        ## attention submodule 1
+        self.question_attn_fc_1 = nn.Sequential(
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True),
+            nn.BatchNorm1d(400), nn.Dropout(0.2))
+        self.image_attn_fc_1 = nn.Sequential(
             nn.Linear(params['img_feature_size'], 400),
-            nn.LeakyReLU(inplace=True))
-        self.attention = nn.Sequential(
-            nn.Linear(400, params['img_feature_size']), nn.Softmax())
+            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(400), nn.Dropout(0.2))
+        self.attention_1 = nn.Sequential(
+            nn.BatchNorm1d(400), nn.Linear(400, params['img_feature_size']),
+            nn.BatchNorm1d(params['img_feature_size']), nn.Softmax())
 
         ##
-        self.quest_fc = nn.Linear(params['txt_emb_size'], 1000)
-        self.image_fc = nn.Linear(params['img_feature_size'], 1000)
+
+        ## attention submodule 2
+        self.question_attn_fc_2 = nn.Sequential(
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True),
+            nn.BatchNorm1d(400), nn.Dropout(0.2))
+        self.image_attn_fc_2 = nn.Sequential(
+            nn.Linear(params['img_feature_size'], 400),
+            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(400), nn.Dropout(0.2))
+        self.attention_2 = nn.Sequential(
+            nn.BatchNorm1d(400), nn.Linear(400, params['img_feature_size']),
+            nn.BatchNorm1d(params['img_feature_size']), nn.Softmax())
+
+        ##
+
+        self.quest_fc = nn.Sequential(
+            nn.Linear(params['txt_emb_size'], 1000), nn.BatchNorm1d(1000),
+            nn.Dropout(0.3))
+        self.image_fc = nn.Sequential(
+            nn.Linear(params['img_feature_size'], 1000), nn.BatchNorm1d(1000),
+            nn.Dropout(0.3))
         self.fusion = nn.Sequential(
             nn.Linear(1000, 2500), nn.LeakyReLU(inplace=True),
-            nn.Linear(2500, params['txt_emb_size']), nn.LeakyReLU(inplace=True))
+            nn.BatchNorm1d(2500), nn.Dropout(0.4),
+            nn.Linear(2500, params['txt_emb_size']),
+            nn.BatchNorm1d(params['txt_emb_size']), nn.Dropout(0.2),
+            nn.LeakyReLU(inplace=True))
 
     def init_hidden(self, params):
         # Before we've done anything, we dont have any hidden state.
@@ -161,13 +182,23 @@ class Encoder_attn(nn.Module):
 
         quest_embedding = self.hidden[0][0]
 
-        ## attention submodule
-        quest_feats = self.question_attn_fc(quest_embedding)
-        img_feats = self.image_attn_fc(img_embedding)
-        attention_weights = self.attention(torch.mul(quest_feats, img_feats))
+        ## attention submodule 1
+        quest_feats_1 = self.question_attn_fc_1(quest_embedding)
+        img_feats_1 = self.image_attn_fc_1(img_embedding)
+        attention_weights_1 = self.attention_1(
+            torch.mul(quest_feats_1, img_feats_1))
+        ##
+
+        ## attention submodule 2
+        quest_feats_2 = self.question_attn_fc_2(quest_embedding)
+        img_feats_2 = self.image_attn_fc_2(img_embedding)
+        attention_weights_2 = self.attention_2(
+            torch.mul(quest_feats_1, img_feats_1))
+        ##
 
         img_embedding = torch.mul(
-            attention_weights, img_embedding)  #attention weighted img_embedding
+            attention_weights_1 + attention_weights_2,
+            img_embedding)  #attention weighted img_embedding
         ##
 
         ### forming the context vector
@@ -181,11 +212,10 @@ class Encoder_attn(nn.Module):
 
 
 class Decoder(nn.Module):
-
     def __init__(self, txt_embed, params):
         super(Decoder, self).__init__()
 
-        self.relu = torch.nn.ReLU()
+        # self.relu = torch.nn.ReLU()
         # self.text_embedding = txt_embed
         self.LSTM = nn.LSTM(
             params['txt_emb_size'], params['txt_emb_size'], batch_first=True)
@@ -200,14 +230,13 @@ class Decoder(nn.Module):
 
         # token_embeddings  = self.text_embedding(input)
         token_embeddings = input
-        token_embeddings = self.relu(token_embeddings)
+        # token_embeddings = self.relu(token_embeddings)
         next_word_embed, hidden = self.LSTM(token_embeddings, hidden)
 
         return next_word_embed, hidden
 
 
 class ImageEmbedding(nn.Module):
-
     def __init__(self):  #, output_size=1024):
         super(ImageEmbedding, self).__init__()
         self.cnn = models.vgg19_bn(pretrained=True).features
