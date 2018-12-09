@@ -107,8 +107,6 @@ def main(params):
 
     criterion = torch.nn.PairwiseDistance(keepdim=False)
     criterion.to(device)
-    encoder.to(device)
-    decoder.to(device)
 
     ## [Completed] TODO(Jay) : Remove this check and use .to(device)
     # if params['cuda']:
@@ -134,19 +132,20 @@ def main(params):
             checkpoint['encoder_optimizer_state_dict'])
         decoder_optimizer.load_state_dict(
             checkpoint['decoder_optimizer_state_dict'])
-        encoder_LR_scheduler.load_state_dict(
-            checkpoint['encoder_LR_scheduler'])
-        decoder_LR_scheduler.load_state_dict(
-            checkpoint['decoder_LR_scheduler'])
+        encoder_LR_scheduler.load_state_dict(checkpoint['encoder_LR_scheduler'])
+        decoder_LR_scheduler.load_state_dict(checkpoint['decoder_LR_scheduler'])
+
+    encoder.to(device)
+    decoder.to(device)
+
+    train_iter, val_iter = Iterator.splits((train, val),
+                                           batch_sizes=(params['batch_size'],
+                                                        params['batch_size']),
+                                           sort=False,
+                                           shuffle=True,
+                                           device=device)
 
     for epoch in range(params['niter']):
-
-        train_iter, val_iter = Iterator.splits(
-            (train, val),
-            batch_sizes=(params['batch_size'], params['batch_size']),
-            sort=False,
-            shuffle=True,
-            device=device)
 
         for is_train in (True, False):
             print('Is Training: ', is_train)
@@ -195,8 +194,7 @@ def main(params):
                     ans_embed = ans_embed[:, 1:]  ## removed the SOS token
                     ans = ans[:, 1:]  ## removed the SOS token
 
-                    decoder_hidden = decoder.init_hidden(
-                        encoder_output, params)
+                    decoder_hidden = decoder.init_hidden(encoder_output, params)
 
                     if params['cuda']:
                         decoder_hidden = (decoder_hidden[0].cuda(),
@@ -304,19 +302,14 @@ if __name__ == "__main__":
         help='output pkl file with img features')
     parser.add_argument(
         '--use_checkpoint',
-        action='store_true',
         help='Flag which states whether to use the previous Model checkpoint')
     parser.add_argument(
         '--enc_dec_model',
-        default='output/20181208_1949/enc_dec_model.pth',
+        default='output/enc_dec_model.pth',
         help='Saved model path')
+    parser.add_argument('--dataroot', default='./data/', help='path to dataset')
     parser.add_argument(
-        '--dataroot', default='./data/', help='path to dataset')
-    parser.add_argument(
-        '--workers',
-        type=int,
-        help='number of data loading workers',
-        default=2)
+        '--workers', type=int, help='number of data loading workers', default=2)
     parser.add_argument(
         '--batch_size', type=int, default=32, help='input batch size')
     parser.add_argument(
