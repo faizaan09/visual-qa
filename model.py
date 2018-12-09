@@ -6,6 +6,7 @@ from torch.autograd import Variable
 
 
 class Model(nn.Module):
+
     def __init__(self, params):
         super(Model, self).__init__()
 
@@ -59,6 +60,7 @@ class Model(nn.Module):
 
 
 class Encoder(nn.Module):
+
     def __init__(self, img_embed, txt_embed, params):
         super(Encoder, self).__init__()
 
@@ -79,9 +81,8 @@ class Encoder(nn.Module):
         self.hidden = self.init_hidden(params)
 
         self.fusion = nn.Sequential(
-            nn.BatchNorm1d(params['img_feature_size'] +
-                           params['txt_emb_size']), nn.LeakyReLU(),
-            nn.Dropout(),
+            nn.BatchNorm1d(params['img_feature_size'] + params['txt_emb_size']),
+            nn.LeakyReLU(), nn.Dropout(),
             nn.Linear(params['img_feature_size'] + params['txt_emb_size'],
                       2500), nn.BatchNorm1d(2500), nn.LeakyReLU(True),
             nn.Dropout(), nn.Linear(2500, params['txt_emb_size']),
@@ -114,6 +115,7 @@ class Encoder(nn.Module):
 
 
 class Encoder_attn(nn.Module):
+
     def __init__(self, img_embed, txt_embed, params):
         super(Encoder_attn, self).__init__()
 
@@ -193,7 +195,7 @@ class Encoder_attn(nn.Module):
         quest_feats_2 = self.question_attn_fc_2(quest_embedding)
         img_feats_2 = self.image_attn_fc_2(img_embedding)
         attention_weights_2 = self.attention_2(
-            torch.mul(quest_feats_1, img_feats_1))
+            torch.mul(quest_feats_2, img_feats_2))
         ##
 
         img_embedding = torch.mul(
@@ -212,6 +214,7 @@ class Encoder_attn(nn.Module):
 
 
 class Decoder(nn.Module):
+
     def __init__(self, txt_embed, params):
         super(Decoder, self).__init__()
 
@@ -237,6 +240,7 @@ class Decoder(nn.Module):
 
 
 class ImageEmbedding(nn.Module):
+
     def __init__(self):  #, output_size=1024):
         super(ImageEmbedding, self).__init__()
         self.cnn = models.vgg19_bn(pretrained=True).features
