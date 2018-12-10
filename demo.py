@@ -1,6 +1,7 @@
 from tkinter.filedialog import askopenfilename
 import torch
 import model
+from models.single_world_model import VQAModel
 import os
 import pickle as pkl
 import spacy
@@ -8,12 +9,20 @@ import argparse
 import json
 from torch.autograd import Variable
 from tkinter import Tk
+from metrics import getIndicesFromEmbedding
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 def init(params):
     with open(params['text_embeddings'], 'rb') as f:
         vocab = pkl.load(f)
         params['vocab'] = vocab
+
+    with open('data/one_word_vocab.pkl', 'rb') as f:
+        vocab = pkl.load(f)
+        params['one_word_vocab'] = vocab
 
 
 def get_user_input():
@@ -37,7 +46,19 @@ def tokenizer(text):  # create a tokenizer function
     return [tok.text for tok in spacy_en.tokenizer(text)]
 
 
-def mcq_preprocess(img_path, quest, params):
+def load_embeddings(params):
+    with open(params['image_embeddings'], 'rb') as f:
+        img_embs = pkl.load(f)['image_features']
+
+    img_embed = torch.nn.Embedding.from_pretrained(torch.FloatTensor(img_embs))
+
+    txt_embed = torch.nn.Embedding.from_pretrained(
+        params['one_word_vocab'].vectors)
+
+    return img_embed, txt_embed
+
+
+def preprocess(img_path, quest, params, choice):
 
     ### NLP related preprocessing
     with open(params['mapping_file'], 'rb') as f:
@@ -48,7 +69,10 @@ def mcq_preprocess(img_path, quest, params):
     quest = quest.lower()
     quest = tokenizer(quest)
 
-    quest = [params['vocab'].stoi[word] for word in quest]
+    if choice == "1":
+        quest = [params['vocab'].stoi[word] for word in quest]
+    else:
+        quest = [params['one_word_vocab'].stoi[word] for word in quest]
 
     ### PyTorch related preprocessing
 
@@ -87,6 +111,17 @@ def mcq_evaluate(img, quest, model, params):
     print('')
 
 
+def open_ended_evaluate(img_ind, quest, model, txt_embed, params):
+
+    encoder_output = model(img_ind, quest)
+    vocab = params['one_word_vocab']
+    txt_embed = torch.tensor(vocab.vectors).cuda()
+    pred_ind = getIndicesFromEmbedding(encoder_output, txt_embed)[0]
+
+    print("\nMost likely answer:", vocab.itos[pred_ind])
+    print('')
+
+
 def main(params):
 
     init(params)
@@ -99,8 +134,7 @@ def main(params):
 
         vqa_model = model.Model(params)
 
-        checkpoint = torch.load(
-            params['baseline_model'], map_location=torch.device('cpu'))
+        checkpoint = torch.load(params['baseline_model'])
         vqa_model.load_state_dict(checkpoint['model_state_dict'])
         vqa_model.hidden = checkpoint['lstm_hidden']
 
@@ -110,18 +144,28 @@ def main(params):
         vqa_model.eval()
 
     else:
-        pass
+        img_embed, txt_embed = load_embeddings(params)
+        vqa_model = VQAModel(img_embed, txt_embed, params)
+
+        checkpoint = torch.load(params['lstm_model'])
+        vqa_model.load_state_dict(checkpoint['encoder_state_dict'])
+        # vqa_model.hidden = checkpoint['lstm_hidden']
+
+        vqa_model.cuda()
+        vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
+        vqa_model.eval()
 
     while True:
 
         img_path, quest = get_user_input()
+        test_img, test_quest = preprocess(img_path, quest, params, choice)
 
         if choice == "1":
-            test_img, test_quest = mcq_preprocess(img_path, quest, params)
             mcq_evaluate(test_img, test_quest, vqa_model, params)
 
         else:
-            pass
+            open_ended_evaluate(test_img, test_quest, vqa_model, txt_embed,
+                                params)
 
         flag = input("enter q to exit, any other key to continue\n")
         if flag == "q":
@@ -137,7 +181,7 @@ if __name__ == "__main__":
         help='saved baseline model path')
     parser.add_argument(
         '--lstm_model',
-        default='20181207_1945/blah.pkl',
+        default='output/checkpoint/enc_dec_model.pth',
         help='saved LSTM model path')
     parser.add_argument(
         '--mapping_file',
@@ -157,7 +201,7 @@ if __name__ == "__main__":
         help='output pkl file with text embeddings')
 
     parser.add_argument(
-        '--cuda', action='store_true', help='enables cuda', default=False)
+        '--cuda', action='store_true', help='enables cuda', default=True)
     parser.add_argument(
         '--outf',
         default='./output/',

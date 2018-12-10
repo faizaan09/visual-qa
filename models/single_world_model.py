@@ -17,26 +17,26 @@ class VQAModel(nn.Module):
 
         ## attention submodule 1
         self.question_attn_fc_1 = nn.Sequential(
-            nn.Linear(params['txt_emb_size'], 800), nn.LeakyReLU(inplace=True),
-            nn.BatchNorm1d(800), nn.Dropout(0.3))
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True),
+            nn.BatchNorm1d(400), nn.Dropout(0.3))
         self.image_attn_fc_1 = nn.Sequential(
-            nn.Linear(params['img_feature_size'], 800),
-            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(800), nn.Dropout(0.3))
+            nn.Linear(params['img_feature_size'], 400),
+            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(400), nn.Dropout(0.3))
         self.attention_1 = nn.Sequential(
-            nn.BatchNorm1d(800), nn.Linear(800, params['img_feature_size']),
+            nn.BatchNorm1d(400), nn.Linear(400, params['img_feature_size']),
             nn.BatchNorm1d(params['img_feature_size']), nn.Softmax())
 
         ##
 
         ## attention submodule 2
         self.question_attn_fc_2 = nn.Sequential(
-            nn.Linear(params['txt_emb_size'], 800), nn.LeakyReLU(inplace=True),
-            nn.BatchNorm1d(800), nn.Dropout(0.3))
+            nn.Linear(params['txt_emb_size'], 400), nn.LeakyReLU(inplace=True),
+            nn.BatchNorm1d(400), nn.Dropout(0.3))
         self.image_attn_fc_2 = nn.Sequential(
-            nn.Linear(params['img_feature_size'], 800),
-            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(800), nn.Dropout(0.3))
+            nn.Linear(params['img_feature_size'], 400),
+            nn.LeakyReLU(inplace=True), nn.BatchNorm1d(400), nn.Dropout(0.3))
         self.attention_2 = nn.Sequential(
-            nn.BatchNorm1d(800), nn.Linear(800, params['img_feature_size']),
+            nn.BatchNorm1d(400), nn.Linear(400, params['img_feature_size']),
             nn.BatchNorm1d(params['img_feature_size']), nn.Softmax())
 
         ##

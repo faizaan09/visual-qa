@@ -79,6 +79,9 @@ def main(params):
     TEXT.build_vocab(train, vectors='glove.6B.100d')
     vocab = TEXT.vocab
 
+    with open('data/one_word_vocab.pkl', 'wb') as f:
+        pkl.dump(vocab, f)
+
     print("Creating Embedding from vocab vectors ..")
     txt_embed = nn.Embedding.from_pretrained(vocab.vectors)
     print("Text Embeddings are generated of size ", txt_embed.weight.size())
