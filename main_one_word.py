@@ -93,7 +93,8 @@ def main(params):
     word_gen_model = VQAModel(img_embed, txt_embed, params)
     print(word_gen_model)
 
-    criterion = torch.nn.MSELoss()
+    y = torch.FloatTensor([1]).to(device)
+    criterion = torch.nn.CosineEmbeddingLoss()
     criterion.to(device)
     word_gen_model.to(device)
 
@@ -153,6 +154,7 @@ def main(params):
 
                     word_gen_model.hidden = word_gen_model.init_hidden(params)
 
+                    ans.squeeze_()
                     ans = ans.to(device)
                     img_ind = img_ind.to(device)
                     question = question.to(device)
@@ -165,13 +167,11 @@ def main(params):
 
                     encoder_output = word_gen_model(img_ind, question)
 
-                    pred_ind = getIndicesFromEmbedding(
-                        encoder_output, vocab.vectors.to(device))
-
                     ans_embed = txt_embed(ans)
-                    batch_loss = criterion(encoder_output, ans_embed.squeeze())
+                    batch_loss = criterion(encoder_output, ans_embed, y)
 
-                    batch_acc = (pred_ind == ans).sum()
+                    batch_acc = word_accuracy(encoder_output,
+                                              vocab.vectors.to(device), ans)
 
                     total_loss += batch_loss.item()
                     total_acc += batch_acc.item()

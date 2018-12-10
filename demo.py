@@ -99,12 +99,14 @@ def main(params):
 
         vqa_model = model.Model(params)
 
-        checkpoint = torch.load(params['baseline_model'])
+        checkpoint = torch.load(
+            params['baseline_model'], map_location=torch.device('cpu'))
         vqa_model.load_state_dict(checkpoint['model_state_dict'])
         vqa_model.hidden = checkpoint['lstm_hidden']
 
-        vqa_model.cuda()
-        vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
+        if params['cuda']:
+            vqa_model.cuda()
+            vqa_model.hidden = tuple([v.cuda() for v in vqa_model.hidden])
         vqa_model.eval()
 
     else:
@@ -155,7 +157,7 @@ if __name__ == "__main__":
         help='output pkl file with text embeddings')
 
     parser.add_argument(
-        '--cuda', action='store_true', help='enables cuda', default=True)
+        '--cuda', action='store_true', help='enables cuda', default=False)
     parser.add_argument(
         '--outf',
         default='./output/',

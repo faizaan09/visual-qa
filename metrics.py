@@ -20,8 +20,19 @@ def maskedLoss(label_embeds, outputs, criterion):
     return loss
 
 
+# def getIndicesFromEmbedding(output_embeds, txt_embeds):
+#     similarity = output_embeds.mm(txt_embeds.t())
+#     output_indices = similarity.argmax(1)
+#     return output_indices
+
+
 def getIndicesFromEmbedding(output_embeds, txt_embeds):
+    eps = torch.Tensor([1e-6]).cuda()
+    txt_embeds_norm = torch.max(
+        torch.norm(txt_embeds, p=2, dim=1).detach(), eps)
     similarity = output_embeds.mm(txt_embeds.t())
+    similarity = similarity.div(txt_embeds_norm)  #.expand_as(txt_embeds))
+
     output_indices = similarity.argmax(1)
     return output_indices
 
@@ -71,7 +82,8 @@ if __name__ == "__main__":
     with open('./data/txt_embed.pkl', 'rb') as f:
         txt_embeds = torch.from_numpy(pkl.load(f))
 
-    correct_acc = word_accuracy(txt_embeds[correct_outputs], txt_embeds, labels)
+    correct_acc = word_accuracy(txt_embeds[correct_outputs], txt_embeds,
+                                labels)
     wrong_acc = word_accuracy(txt_embeds[wrong_outputs], txt_embeds, labels)
 
     print('Accuracy for correct outputs: {}'.format(correct_acc))
